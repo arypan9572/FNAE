@@ -788,7 +788,7 @@ button {
 }
 
 #main-menu h1 {
-    font-size: 5vw;
+    font-size: 4vw;
     margin-bottom: 5vh;
     text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8);
     color: #fff;
@@ -1161,7 +1161,7 @@ button {
 @media (max-width: 768px) and (orientation: portrait) {
     /* Preloader mobile styles */
     .preloader-logo {
-        font-size: 6vw;
+        font-size: 4.8vw;
     }
     
     .preloader-text {
