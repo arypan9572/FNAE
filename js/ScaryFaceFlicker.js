@@ -44,11 +44,18 @@ function startScaryFaceFlicker() {
             const bgIndex = Math.floor(Math.random() * 3);
             const scaryBg = scaryBackgrounds[bgIndex];
             
-            mainMenu.style.backgroundImage = `url('${scaryBg}')`;
+    mainMenu.style.backgroundImage = `url('${scaryBg}')`;
+    mainMenu.style.backgroundSize = "40%";
+    mainMenu.style.backgroundPosition = "center";
+    mainMenu.style.backgroundRepeat = "no-repeat";
             
             const hideDelay = 50 + Math.random() * 150;
             setTimeout(() => {
-                mainMenu.style.backgroundImage = `url('${normalBackground}')`;
+               mainMenu.style.backgroundImage = `url('${normalBackground}')`;
+mainMenu.style.backgroundSize = "100%";
+mainMenu.style.backgroundPosition = "center";
+mainMenu.style.backgroundRepeat = "no-repeat";
+
             }, hideDelay);
         }
     }, 100);
