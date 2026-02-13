@@ -694,6 +694,33 @@ button {
     z-index: 100;
 }
 
+/* MAIN MENU SLIDE-IN ANIMATION (from right) */
+#main-menu h1,
+#main-menu button,
+#main-menu .copyright,
+#main-menu .version {
+  transform: translateX(150px);
+  opacity: 0;
+  transition: transform 1s ease-out, opacity 1s ease-out;
+}
+
+/* when animation starts */
+#main-menu.animate-in h1,
+#main-menu.animate-in button,
+#main-menu.animate-in .copyright,
+#main-menu.animate-in .version {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* stagger effect */
+#main-menu h1 { transition-delay: 0.1s; }
+#main-menu button:nth-of-type(1) { transition-delay: 0.3s; }
+#main-menu button:nth-of-type(2) { transition-delay: 0.45s; }
+#main-menu button:nth-of-type(3) { transition-delay: 0.6s; }
+#main-menu .version { transition-delay: 0.8s; }
+
+
 /* 星星图标 - 放在中间偏上位置 */
 #star-icon {
     position: absolute;
