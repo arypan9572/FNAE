@@ -210,13 +210,28 @@ setTimeout(() => {
             staticNoise.start();
         }
     }
-  const cutscene = document.getElementById("cutscene");
+ const cutscene = document.getElementById("cutscene");
 
 if (cutscene) {
+
+  // show cutscene with fade in
+  cutscene.classList.remove("hidden");
+  cutscene.classList.add("fade-in");
+
+  // when clicked, fade OUT instead of instant hide
   cutscene.addEventListener("click", () => {
-    cutscene.classList.add("hidden");
+    cutscene.classList.remove("fade-in");
+    cutscene.classList.add("fade-out");
+
+    // wait for fade-out animation before hiding
+    setTimeout(() => {
+      cutscene.classList.add("hidden");
+      cutscene.classList.remove("fade-out");
+    }, 3000); // must match CSS transition time (3s)
   });
+
 }
+
 
 });
 
