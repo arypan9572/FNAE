@@ -124,8 +124,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   // hide loading screen after short delay
 setTimeout(() => {
   const loadingScreen = document.getElementById("loading-screen");
+  const gameContainer = document.getElementById("game-container");
+
   if (loadingScreen) loadingScreen.style.display = "none";
+
+  if (gameContainer) {
+    gameContainer.classList.add("fade-in");
+  }
 }, 1500);
+
 
     
     // 初始化游戏
@@ -194,6 +201,14 @@ setTimeout(() => {
             staticNoise.start();
         }
     }
+  const cutscene = document.getElementById("cutscene");
+
+if (cutscene) {
+  cutscene.addEventListener("click", () => {
+    cutscene.classList.add("hidden");
+  });
+}
+
 });
 
 // 监听来自父页面的消息（iframe 通信）
