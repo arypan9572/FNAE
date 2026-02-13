@@ -63,30 +63,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }, 1500);
 
-  // CUTSCENE WAIT FOR CLICK
-  if (cutscene) {
-    cutscene.addEventListener("click", () => {
+if (cutscene) {
+  cutscene.addEventListener("click", () => {
 
-      // fade out cutscene
-      cutscene.classList.remove("show");
+    cutscene.classList.remove("show");
 
-      setTimeout(() => {
-        cutscene.classList.add("hidden");
+    setTimeout(() => {
+      cutscene.classList.add("hidden");
 
-        // fade in game
-        if (gameContainer) {
-          gameContainer.style.opacity = "1";
-        }
+      // SHOW MAIN MENU PROPERLY
+      if (mainMenu) {
+        mainMenu.classList.remove("hidden"); // <-- THIS WAS MISSING
+        mainMenu.style.opacity = "1";
+        startMenuAnimation();
+      }
 
-        // show menu
-        if (mainMenu) {
-          mainMenu.style.opacity = "1";
-          startMenuAnimation();
-        }
+    }, 1000);
 
-      }, 1000); // wait for fade
-    });
-  }
+  });
+}
+
 
   // MENU MUSIC
   const menuMusic = document.getElementById('menu-music');
