@@ -210,27 +210,7 @@ setTimeout(() => {
             staticNoise.start();
         }
     }
- const cutscene = document.getElementById("cutscene");
-
-if (cutscene) {
-
-  // show cutscene with fade in
-  cutscene.classList.remove("hidden");
-  cutscene.classList.add("fade-in");
-
-  // when clicked, fade OUT instead of instant hide
-  cutscene.addEventListener("click", () => {
-    cutscene.classList.remove("fade-in");
-    cutscene.classList.add("fade-out");
-
-    // wait for fade-out animation before hiding
-    setTimeout(() => {
-      cutscene.classList.add("hidden");
-      cutscene.classList.remove("fade-out");
-    }, 3000); // must match CSS transition time (3s)
-  });
-
-}
+ 
 
 
 });
@@ -252,3 +232,31 @@ window.addEventListener('message', (event) => {
         }
     }
 });
+
+function startCutscene() {
+  const cutscene = document.getElementById("cutscene");
+  const mainMenu = document.getElementById("main-menu");
+
+  if (!cutscene) return;
+
+  // hide menu
+  if (mainMenu) {
+    mainMenu.classList.add("hidden");
+  }
+
+  // reset cutscene state
+  cutscene.classList.remove("hidden", "fade-out");
+  cutscene.classList.add("fade-in");
+
+  // click to fade out
+  cutscene.onclick = () => {
+    cutscene.classList.remove("fade-in");
+    cutscene.classList.add("fade-out");
+
+    setTimeout(() => {
+      cutscene.classList.add("hidden");
+      cutscene.classList.remove("fade-out");
+      // here is where gameplay would start later
+    }, 3000);
+  };
+}
