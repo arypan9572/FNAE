@@ -699,7 +699,7 @@ button {
 #main-menu button,
 #main-menu .copyright,
 #main-menu .version {
-  transform: translateX(150px);
+  transform: translateX(-150px); /* start off-screen LEFT */
   opacity: 0;
   transition: transform 1s ease-out, opacity 1s ease-out;
 }
