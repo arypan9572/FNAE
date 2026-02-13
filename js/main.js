@@ -1,10 +1,13 @@
-// 游戏入口 - 初始化所有模块
+// =============================
+// GAME ENTRY
+// =============================
 let game;
 let staticNoise;
-
 let dots = 1;
 
-// LOADING TEXT ANIMATION
+// =============================
+// LOADING TEXT
+// =============================
 window.addEventListener("DOMContentLoaded", () => {
   const loadingText = document.getElementById("loading-text");
 
@@ -17,7 +20,9 @@ window.addEventListener("DOMContentLoaded", () => {
   }, 400);
 });
 
-// 禁用浏览器默认行为
+// =============================
+// DISABLE BROWSER DEFAULTS
+// =============================
 function disableBrowserDefaults() {
   document.addEventListener('contextmenu', e => e.preventDefault(), { capture: true });
   document.addEventListener('dragstart', e => e.preventDefault(), { capture: true });
@@ -35,67 +40,75 @@ function disableBrowserDefaults() {
 // =============================
 // MAIN START
 // =============================
-window.addEventListener('DOMContentLoaded', async () => {
+window.addEventListener("DOMContentLoaded", () => {
 
   disableBrowserDefaults();
 
   const loadingScreen = document.getElementById("loading-screen");
-  const gameContainer = document.getElementById("game-container");
   const cutscene = document.getElementById("cutscene");
   const mainMenu = document.getElementById("main-menu");
 
-  // hide game & menu at first
-  if (gameContainer) gameContainer.style.opacity = "0";
-  if (mainMenu) mainMenu.style.opacity = "0";
+  // force correct initial states
+  if (cutscene) cutscene.classList.add("hidden");
+  if (mainMenu) mainMenu.classList.add("hidden");
 
-  // INIT GAME
+  // init game
   game = new Game();
   staticNoise = new StaticNoise();
   game.updateContinueButton();
 
+  // =============================
   // AFTER LOADING → SHOW CUTSCENE
+  // =============================
   setTimeout(() => {
+
     if (loadingScreen) loadingScreen.style.display = "none";
 
     if (cutscene) {
       cutscene.classList.remove("hidden");
       cutscene.classList.add("show");
     }
+
   }, 1500);
 
-if (cutscene) {
-  cutscene.addEventListener("click", () => {
+  // =============================
+  // CUTSCENE CLICK → SHOW MENU
+  // =============================
+  if (cutscene) {
+    cutscene.addEventListener("click", () => {
 
-    cutscene.classList.remove("show");
+      cutscene.classList.remove("show");
 
-    setTimeout(() => {
-      cutscene.classList.add("hidden");
+      setTimeout(() => {
+        cutscene.classList.add("hidden");
 
-      // SHOW MAIN MENU PROPERLY
-      if (mainMenu) {
-        mainMenu.classList.remove("hidden"); // <-- THIS WAS MISSING
-        mainMenu.style.opacity = "1";
-        startMenuAnimation();
-      }
+        if (mainMenu) {
+          mainMenu.classList.remove("hidden");
+          startMenuAnimation();
+        }
 
-    }, 1000);
+      }, 1000);
 
-  });
-}
+    });
+  }
 
-
+  // =============================
   // MENU MUSIC
-  const menuMusic = document.getElementById('menu-music');
+  // =============================
+  const menuMusic = document.getElementById("menu-music");
   if (menuMusic) {
     menuMusic.volume = 0.5;
+
     document.addEventListener("click", () => {
       menuMusic.play().catch(()=>{});
     }, { once: true });
   }
 
-  // scary face & static
+  // =============================
+  // STATIC + SCARY FACE
+  // =============================
   const observer = new MutationObserver(() => {
-    if (mainMenu && !mainMenu.classList.contains('hidden')) {
+    if (mainMenu && !mainMenu.classList.contains("hidden")) {
       startScaryFaceFlicker();
       staticNoise.start();
     } else {
@@ -105,7 +118,7 @@ if (cutscene) {
   });
 
   if (mainMenu) {
-    observer.observe(mainMenu, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(mainMenu, { attributes: true, attributeFilter: ["class"] });
   }
 
 });
@@ -122,16 +135,20 @@ function startMenuAnimation() {
   elements.forEach((el, index) => {
     if (!el) return;
 
+    el.classList.remove("menu-animate");
+
     setTimeout(() => {
       el.classList.add("menu-animate");
     }, index * 400);
   });
 }
 
-// iframe message
-window.addEventListener('message', (event) => {
-  if (event.data.type === 'USER_CLICKED_PLAY') {
-    const menuMusic = document.getElementById('menu-music');
+// =============================
+// IFRAME MESSAGE
+// =============================
+window.addEventListener("message", (event) => {
+  if (event.data.type === "USER_CLICKED_PLAY") {
+    const menuMusic = document.getElementById("menu-music");
     if (menuMusic) {
       menuMusic.volume = 0.5;
       menuMusic.play().catch(()=>{});
