@@ -68,7 +68,10 @@ function stopScaryFaceFlicker() {
         
         const mainMenu = document.getElementById('main-menu');
         if (mainMenu) {
-            mainMenu.style.backgroundImage = `url('${normalBackground}')`;
+      mainMenu.style.backgroundImage = `url('${normalBackground}')`;
+mainMenu.style.backgroundSize = "100%";
+mainMenu.style.backgroundPosition = "center";
+mainMenu.style.backgroundRepeat = "no-repeat";
         }
     }
 }
