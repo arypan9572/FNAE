@@ -2,9 +2,19 @@
 let game;
 let staticNoise;
 
-// 预加载进度跟踪
-let loadedAssets = 0;
-let totalAssets = 0;
+let dots = 1;
+
+window.addEventListener("DOMContentLoaded", () => {
+  const loadingText = document.getElementById("loading-text");
+
+  setInterval(() => {
+    dots++;
+    if (dots > 3) dots = 1;
+    if (loadingText) {
+      loadingText.textContent = "LOADING" + ".".repeat(dots);
+    }
+  }, 400);
+});
 
 // 禁用浏览器默认行为，提升游戏体验
 function disableBrowserDefaults() {
@@ -102,143 +112,21 @@ function disableBrowserDefaults() {
     // console.log('Browser defaults disabled for better game experience');
 }
 
-// 更新预加载进度
-function updatePreloadProgress(progress) {
-    const progressBar = document.getElementById('progress-bar');
-    const percentage = document.getElementById('preloader-percentage');
-    
-    if (progressBar && percentage) {
-        progressBar.style.width = progress + '%';
-        percentage.textContent = Math.round(progress) + '%';
-    }
-}
 
-// 预加载所有游戏资源
-async function preloadGameAssets() {
-    const basePath = window.location.pathname.includes('/FNAE-HTML5-1.1.5/') 
-        ? '/FNAE-HTML5-1.1.5/' 
-        : './';
-    
-    // 定义所有需要预加载的资源
-    const imagePaths = [
-        'assets/images/original.png',
-        'assets/images/Cam1.png',
-        'assets/images/Cam2.png',
-        'assets/images/Cam3.png',
-        'assets/images/Cam4.png',
-        'assets/images/Cam5.png',
-        'assets/images/Cam6.png',
-        'assets/images/Cam7.png',
-        'assets/images/Cam8.png',
-        'assets/images/Cam9.png',
-        'assets/images/Cam10.png',
-        'assets/images/Cam11.png',
-        'assets/images/jump.png',
-        'assets/images/menubackground.png',
-        'assets/images/cutscene.png',
-        'assets/images/fa3.png',
-        'assets/images/FNAE-Map-layout.png',
-        'assets/images/enemyep1.png',
-        'assets/images/ep1.png',
-        'assets/images/ep4.png',
-        'assets/images/enemyep4.png',
-        'assets/images/scaryhawk.png',
-        'assets/images/scaryep.png',
-        'assets/images/scarytrump.png',
-        'assets/images/winscreen.png',  // Night 5 胜利画面
-        'assets/images/goldenstephen.png'  // Golden 霍金
-    ];
-    
-    const soundPaths = [
-        'assets/sounds/music.ogg',
-        'assets/sounds/music3.ogg',
-        'assets/sounds/Static_sound.ogg',
-        'assets/sounds/vents.ogg',
-        'assets/sounds/jumpcare.ogg',
-        'assets/sounds/Blip.ogg',
-        'assets/sounds/winmusic.ogg',
-        'assets/sounds/chimes.ogg',
-        'assets/sounds/Crank1.ogg',
-        'assets/sounds/Crank2.ogg',
-        'assets/sounds/goldenstephenscare.ogg'  // Golden 霍金音效
-    ];
-    
-    totalAssets = imagePaths.length + soundPaths.length;
-    loadedAssets = 0;
-    
-    // 预加载图片
-    const imagePromises = imagePaths.map(path => {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                loadedAssets++;
-                updatePreloadProgress((loadedAssets / totalAssets) * 100);
-                resolve();
-            };
-            img.onerror = () => {
-                console.warn(`Failed to load image: ${path}`);
-                loadedAssets++;
-                updatePreloadProgress((loadedAssets / totalAssets) * 100);
-                resolve();
-            };
-            img.src = basePath + path;
-        });
-    });
-    
-    // 预加载音频（不阻塞，快速加载）
-    const audioPromises = soundPaths.map(path => {
-        return new Promise((resolve) => {
-            const audio = new Audio();
-            audio.addEventListener('canplaythrough', () => {
-                loadedAssets++;
-                updatePreloadProgress((loadedAssets / totalAssets) * 100);
-                resolve();
-            }, { once: true });
-            audio.addEventListener('error', () => {
-                console.warn(`Failed to load audio: ${path}`);
-                loadedAssets++;
-                updatePreloadProgress((loadedAssets / totalAssets) * 100);
-                resolve();
-            }, { once: true });
-            audio.src = basePath + path;
-            audio.load();
-        });
-    });
-    
-    // 等待所有资源加载完成
-    await Promise.all([...imagePromises, ...audioPromises]);
-    
-    // 确保进度条显示100%
-    updatePreloadProgress(100);
-    
-    // 等待一小段时间让玩家看到100%
-    await new Promise(resolve => setTimeout(resolve, 500));
-}
 
-// 隐藏预加载动画
-function hidePreloader() {
-    const preloader = document.getElementById('preloader');
-    if (preloader) {
-        preloader.classList.add('fade-out');
-        setTimeout(() => {
-            preloader.style.display = 'none';
-        }, 500);
-    }
-}
+
 
 // 页面加载完成后启动
 window.addEventListener('DOMContentLoaded', async () => {
     // 禁用浏览器默认行为
     disableBrowserDefaults();
     
-    // 先预加载所有资源
-    await preloadGameAssets();
-    
-    // 预加载背景图片（用于恐怖脸效果）
-    preloadBackgrounds();
-    
-    // 隐藏预加载动画
-    hidePreloader();
+  // hide loading screen after short delay
+setTimeout(() => {
+  const loadingScreen = document.getElementById("loading-screen");
+  if (loadingScreen) loadingScreen.style.display = "none";
+}, 1500);
+
     
     // 初始化游戏
     game = new Game();
