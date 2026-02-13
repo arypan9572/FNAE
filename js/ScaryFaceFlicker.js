@@ -45,15 +45,15 @@ function startScaryFaceFlicker() {
             const scaryBg = scaryBackgrounds[bgIndex];
             
     mainMenu.style.backgroundImage = `url('${scaryBg}')`;
-    mainMenu.style.backgroundSize = "40%";
-    mainMenu.style.backgroundPosition = "center";
+    mainMenu.style.backgroundSize = "50%";
+    mainMenu.style.backgroundPosition = "right bottom";
     mainMenu.style.backgroundRepeat = "no-repeat";
             
             const hideDelay = 50 + Math.random() * 150;
             setTimeout(() => {
                mainMenu.style.backgroundImage = `url('${normalBackground}')`;
-mainMenu.style.backgroundSize = "40%";
-mainMenu.style.backgroundPosition = "center";
+mainMenu.style.backgroundSize = "50%";
+mainMenu.style.backgroundPosition = "right bottom";
 mainMenu.style.backgroundRepeat = "no-repeat";
 
             }, hideDelay);
@@ -69,8 +69,8 @@ function stopScaryFaceFlicker() {
         const mainMenu = document.getElementById('main-menu');
         if (mainMenu) {
       mainMenu.style.backgroundImage = `url('${normalBackground}')`;
-mainMenu.style.backgroundSize = "40%";
-mainMenu.style.backgroundPosition = "center";
+mainMenu.style.backgroundSize = "50%";
+mainMenu.style.backgroundPosition = "right bottom";
 mainMenu.style.backgroundRepeat = "no-repeat";
         }
     }
