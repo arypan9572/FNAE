@@ -121,17 +121,25 @@ window.addEventListener('DOMContentLoaded', async () => {
     // 禁用浏览器默认行为
     disableBrowserDefaults();
     
-  // hide loading screen after short delay
+ // hide loading screen after short delay
 setTimeout(() => {
   const loadingScreen = document.getElementById("loading-screen");
   const gameContainer = document.getElementById("game-container");
+  const mainMenu = document.getElementById("main-menu");
 
   if (loadingScreen) loadingScreen.style.display = "none";
 
   if (gameContainer) {
     gameContainer.classList.add("fade-in");
   }
+
+  // trigger main menu slide-in animation
+  if (mainMenu) {
+    mainMenu.classList.add("animate-in");
+  }
+
 }, 1500);
+
 
 
     
