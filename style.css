@@ -1625,3 +1625,13 @@ button {
   letter-spacing: 4px;
 }
 
+#game-container {
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+#game-container.fade-in {
+  opacity: 1;
+}
+
+
