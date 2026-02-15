@@ -820,7 +820,6 @@ button {
     margin-bottom: 5vh;
     text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8);
     color: #fff;
-    font-family: 'Courier New', monospace;
     font-weight: bold;
     letter-spacing: 2px;
     line-height: 1.2;
@@ -838,7 +837,6 @@ button {
     cursor: pointer;
     transition: all 0.2s;
     text-align: left;
-    font-family: 'Courier New', monospace;
     font-weight: bold;
     letter-spacing: 3px;
     white-space: nowrap;
