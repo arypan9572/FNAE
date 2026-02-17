@@ -823,7 +823,9 @@ button {
     font-weight: bold;
     letter-spacing: 2px;
     line-height: 1.2;
+    font-family: 'Courier New', monospace;
 }
+
 
 #main-menu button {
     width: 20vw;
@@ -840,7 +842,9 @@ button {
     font-weight: bold;
     letter-spacing: 3px;
     white-space: nowrap;
+    font-family: 'Courier New', monospace;
 }
+
 
 #main-menu button::before {
     content: '> ';
@@ -1649,4 +1653,8 @@ button {
   font-family: "Courier New", monospace;
   font-size: 48px;
   letter-spacing: 4px;
+}
+
+#main-menu {
+  font-family: 'Courier New', monospace;
 }
