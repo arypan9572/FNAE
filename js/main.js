@@ -244,19 +244,33 @@ function startCutscene() {
     mainMenu.classList.add("hidden");
   }
 
-  // reset cutscene state
-  cutscene.classList.remove("hidden", "fade-out");
+  // reset state (force invisible first)
+  cutscene.classList.remove("hidden", "fade-in", "fade-out");
+  cutscene.style.opacity = "0";
+
+  // force browser to register opacity = 0 first
+  cutscene.offsetHeight; // <-- this line is VERY important
+
+  // now fade in
   cutscene.classList.add("fade-in");
 
-  // click to fade out
+  // block skipping for first 1.5 seconds
+  let canSkip = false;
+
+  setTimeout(() => {
+    canSkip = true;
+  }, 1500);
+
   cutscene.onclick = () => {
+    if (!canSkip) return; // ignore early clicks
+
     cutscene.classList.remove("fade-in");
     cutscene.classList.add("fade-out");
 
     setTimeout(() => {
       cutscene.classList.add("hidden");
       cutscene.classList.remove("fade-out");
-      // here is where gameplay would start later
-    }, 3000);
+    }, 3000); // must match CSS transition time
   };
 }
+
