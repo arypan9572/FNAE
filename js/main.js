@@ -244,25 +244,23 @@ function startCutscene() {
     mainMenu.classList.add("hidden");
   }
 
-  // reset state (force invisible first)
+  // reset cutscene state
   cutscene.classList.remove("hidden", "fade-in", "fade-out");
-  cutscene.style.opacity = "0";
 
-  // force browser to register opacity = 0 first
-  cutscene.offsetHeight; // <-- this line is VERY important
+  // FORCE browser to see opacity:0 first
+  cutscene.offsetWidth; // important
 
   // now fade in
   cutscene.classList.add("fade-in");
 
-  // block skipping for first 1.5 seconds
+  // block skipping for 1.5s
   let canSkip = false;
-
   setTimeout(() => {
     canSkip = true;
   }, 1500);
 
   cutscene.onclick = () => {
-    if (!canSkip) return; // ignore early clicks
+    if (!canSkip) return;
 
     cutscene.classList.remove("fade-in");
     cutscene.classList.add("fade-out");
@@ -270,7 +268,6 @@ function startCutscene() {
     setTimeout(() => {
       cutscene.classList.add("hidden");
       cutscene.classList.remove("fade-out");
-    }, 3000); // must match CSS transition time
+    }, 3000);
   };
 }
-
