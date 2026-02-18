@@ -211,6 +211,14 @@ setTimeout(() => {
         }
     }
  
+const startBtn = document.getElementById("start-game");
+const cutscene = document.getElementById("cutscene");
+
+if (startBtn && cutscene) {
+  startBtn.addEventListener("click", () => {
+    startCutscene();
+  });
+}
 
 
 });
@@ -232,6 +240,44 @@ window.addEventListener('message', (event) => {
         }
     }
 });
+
+function startCutscene() {
+  const cutscene = document.getElementById("cutscene");
+  const mainMenu = document.getElementById("main-menu");
+
+  if (!cutscene || !mainMenu) return;
+
+  // hide menu
+  mainMenu.classList.add("hidden");
+
+  // reset cutscene state
+  cutscene.classList.remove("hidden", "fade-in", "fade-out");
+
+  // force browser reflow so fade-in works
+  cutscene.offsetWidth;
+
+  // fade in
+  cutscene.classList.add("fade-in");
+
+  let canSkip = false;
+
+  // block skipping for 1.5 seconds
+  setTimeout(() => {
+    canSkip = true;
+  }, 1500);
+
+  cutscene.onclick = () => {
+    if (!canSkip) return;
+
+    cutscene.classList.remove("fade-in");
+    cutscene.classList.add("fade-out");
+
+    setTimeout(() => {
+      cutscene.classList.add("hidden");
+      cutscene.classList.remove("fade-out");
+    }, 3000); // must match CSS transition time
+  };
+}
 
 function startCutscene() {
   const cutscene = document.getElementById("cutscene");
