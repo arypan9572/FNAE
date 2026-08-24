@@ -1,140 +1,3342 @@
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
     <title>Five Nights At Efrain's House</title>
+
     <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* =========================================================
+           EFRAIN'S HOUSE — ENHANCED UI FOUNDATION
+           ========================================================= */
+
+        :root {
+            --ui-white: #e9e9e9;
+            --ui-dim: #777;
+            --ui-red: #b91d1d;
+            --ui-dark-red: #541010;
+            --ui-green: #63ff86;
+            --ui-yellow: #d8c35b;
+            --ui-black: #050505;
+            --ease-out: cubic-bezier(.16,1,.3,1);
+            --ease-spring: cubic-bezier(.22,1.35,.45,1);
+            --ease-smooth: cubic-bezier(.4,0,.2,1);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: white;
+            font-family: Arial, Helvetica, sans-serif;
+            user-select: none;
+        }
+
+        button {
+            font: inherit;
+        }
+
+        /* =========================================================
+           GLOBAL ATMOSPHERE
+           ========================================================= */
+
+        #game-container {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            background:
+                radial-gradient(
+                    ellipse at center,
+                    rgba(50,50,50,.16),
+                    rgba(0,0,0,.95) 78%
+                ),
+                #000;
+        }
+
+        #game-container::before {
+            content: "";
+            position: absolute;
+            inset: -20%;
+            pointer-events: none;
+            z-index: 900;
+            opacity: .11;
+            background:
+                repeating-linear-gradient(
+                    to bottom,
+                    transparent 0px,
+                    transparent 3px,
+                    rgba(255,255,255,.09) 4px
+                );
+            animation: scanlineDrift 7s linear infinite;
+            mix-blend-mode: screen;
+        }
+
+        #game-container::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 901;
+            background:
+                radial-gradient(
+                    ellipse,
+                    transparent 45%,
+                    rgba(0,0,0,.72) 100%
+                );
+        }
+
+        /* =========================================================
+           LOADING SCREEN
+           ========================================================= */
+
+        #loading-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 99999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: #000;
+            animation: loadingFadeOut 1.4s 2.8s var(--ease-out) forwards;
+        }
+
+        #loading-screen::before {
+            content: "";
+            position: absolute;
+            inset: -50%;
+            background:
+                repeating-linear-gradient(
+                    0deg,
+                    transparent 0 2px,
+                    rgba(255,255,255,.025) 3px
+                );
+            animation: loadingNoise .08s steps(2) infinite;
+        }
+
+        #loading-screen::after {
+            content: "";
+            position: absolute;
+            width: 150%;
+            height: 2px;
+            background: rgba(255,255,255,.2);
+            box-shadow:
+                0 0 20px rgba(255,255,255,.1),
+                0 0 60px rgba(255,255,255,.05);
+            animation: bootScan 2.1s linear infinite;
+        }
+
+        #loading-text {
+            position: relative;
+            z-index: 2;
+            font-size: clamp(12px, 1.5vw, 20px);
+            letter-spacing: .4em;
+            color: #ddd;
+            text-shadow:
+                0 0 5px rgba(255,255,255,.5),
+                0 0 25px rgba(255,255,255,.12);
+            animation:
+                loadingTextPulse 1.1s ease-in-out infinite,
+                loadingTextGlitch .17s steps(2) infinite;
+        }
+
+        /* =========================================================
+           GAME SCREEN
+           ========================================================= */
+
+        #game-screen {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            opacity: 1;
+            transform: scale(1);
+            transition:
+                opacity .8s var(--ease-out),
+                transform 1.2s var(--ease-out),
+                filter .8s var(--ease-out);
+        }
+
+        #current-scene {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            image-rendering: auto;
+            transition:
+                opacity .55s var(--ease-out),
+                transform 2.2s var(--ease-out),
+                filter .6s var(--ease-out);
+        }
+
+        /* Tiny atmospheric movement */
+        #game-screen::before {
+            content: "";
+            position: absolute;
+            inset: -3%;
+            z-index: 2;
+            pointer-events: none;
+            background:
+                radial-gradient(
+                    ellipse at 50% 35%,
+                    transparent 20%,
+                    rgba(0,0,0,.16) 75%,
+                    rgba(0,0,0,.7) 100%
+                );
+            animation: atmosphereBreathing 8s ease-in-out infinite;
+        }
+
+        /* =========================================================
+           HOTSPOTS
+           ========================================================= */
+
+        #hotspots {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+        }
+
+        #hotspots > * {
+            transition:
+                transform .35s var(--ease-spring),
+                opacity .35s var(--ease-out),
+                filter .35s var(--ease-out);
+        }
+
+        #hotspots > *:hover {
+            filter: brightness(1.25);
+        }
+
+        /* =========================================================
+           UI OVERLAY
+           ========================================================= */
+
+        #ui-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #top-left-ui {
+            position: absolute;
+            top: 28px;
+            left: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            transform-origin: top left;
+            animation: uiSlideIn .9s .4s var(--ease-out) both;
+        }
+
+        #time-display {
+            font-size: clamp(26px, 3vw, 45px);
+            font-weight: 800;
+            letter-spacing: -.04em;
+            text-shadow:
+                0 2px 0 #000,
+                0 0 12px rgba(255,255,255,.18);
+        }
+
+        #night-display {
+            font-size: 11px;
+            letter-spacing: .35em;
+            color: rgba(255,255,255,.55);
+        }
+
+        #bottom-right-ui {
+            position: absolute;
+            right: 30px;
+            bottom: 27px;
+            animation: uiSlideUp .9s .5s var(--ease-out) both;
+        }
+
+        #oxygen-display {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 17px;
+            font-weight: bold;
+            text-shadow: 0 2px 5px #000;
+        }
+
+        .vent-icon {
+            width: 23px;
+            height: 23px;
+            object-fit: contain;
+            opacity: .72;
+            animation: tinyFloat 2.7s ease-in-out infinite;
+        }
+
+        .percent-sign,
+        .oxygen-unit {
+            opacity: .48;
+            font-size: 10px;
+        }
+
+        /* =========================================================
+           CAMERA PANEL
+           ========================================================= */
+
+        #camera-panel {
+            position: absolute;
+            inset: 0;
+            z-index: 500;
+            overflow: hidden;
+            background: #090909;
+            transform-origin: bottom center;
+            transition:
+                opacity .5s var(--ease-out),
+                transform .75s var(--ease-spring),
+                filter .6s var(--ease-out);
+        }
+
+        #camera-panel.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(1.06) translateY(25px);
+            filter: blur(8px);
+        }
+
+        #camera-panel:not(.hidden) {
+            animation: cameraOpen .8s var(--ease-out);
+        }
+
+        #current-cam-label {
+            position: absolute;
+            left: 25px;
+            top: 20px;
+            z-index: 20;
+            padding: 7px 12px;
+            border-left: 2px solid rgba(255,255,255,.5);
+            background: rgba(0,0,0,.45);
+            font-size: 14px;
+            letter-spacing: .2em;
+            animation: camLabelIn .5s var(--ease-out);
+        }
+
+        #camera-error-label {
+            position: absolute;
+            right: 25px;
+            top: 20px;
+            z-index: 20;
+            color: #ff3333;
+            font-size: 13px;
+            font-weight: 900;
+            letter-spacing: .2em;
+            animation: errorBlink 1.2s steps(2) infinite;
+        }
+
+        #camera-grid {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            pointer-events: none;
+            background:
+                linear-gradient(
+                    rgba(255,255,255,.025) 1px,
+                    transparent 1px
+                ),
+                linear-gradient(
+                    90deg,
+                    rgba(255,255,255,.025) 1px,
+                    transparent 1px
+                );
+            background-size: 80px 80px;
+            opacity: .35;
+            animation: gridMove 12s linear infinite;
+        }
+
+        #character-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 8;
+            pointer-events: none;
+        }
+
+        #camera-static-video {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: .15;
+            mix-blend-mode: screen;
+            pointer-events: none;
+        }
+
+        #shock-hawking-btn,
+        #play-sound-btn {
+            position: absolute;
+            z-index: 30;
+            bottom: 25px;
+            min-width: 160px;
+            padding: 13px 20px;
+            border: 1px solid rgba(255,255,255,.25);
+            color: #eee;
+            background: rgba(0,0,0,.72);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition:
+                transform .35s var(--ease-spring),
+                background .3s ease,
+                border-color .3s ease,
+                box-shadow .3s ease;
+        }
+
+        #shock-hawking-btn {
+            left: 25px;
+        }
+
+        #play-sound-btn {
+            left: 205px;
+        }
+
+        #shock-hawking-btn:hover,
+        #play-sound-btn:hover {
+            transform: translateY(-5px) scale(1.025);
+            background: rgba(50,50,50,.85);
+            border-color: rgba(255,255,255,.55);
+            box-shadow: 0 10px 35px rgba(0,0,0,.5);
+        }
+
+        #shock-hawking-btn:active,
+        #play-sound-btn:active {
+            transform: scale(.94);
+        }
+
+        /* =========================================================
+           MAIN MENU
+           ========================================================= */
+
+        #main-menu {
+            position: absolute;
+            inset: 0;
+            z-index: 700;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            padding-left: clamp(7%, 10vw, 13%);
+            overflow: hidden;
+
+            background:
+                radial-gradient(
+                    ellipse at 20% 50%,
+                    rgba(70,0,0,.25),
+                    transparent 45%
+                ),
+                linear-gradient(
+                    90deg,
+                    rgba(0,0,0,.95),
+                    rgba(0,0,0,.58),
+                    rgba(0,0,0,.18)
+                );
+
+            transition:
+                opacity .9s var(--ease-out),
+                transform 1s var(--ease-out),
+                filter .9s var(--ease-out);
+        }
+
+        #main-menu.menu-exit {
+            opacity: 0;
+            transform: scale(1.08);
+            filter: blur(12px);
+            pointer-events: none;
+        }
+
+        #main-menu::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(
+                    ellipse at 80% 30%,
+                    rgba(255,255,255,.05),
+                    transparent 25%
+                );
+            animation: menuLightDrift 11s ease-in-out infinite;
+        }
+
+        #main-menu h1 {
+            position: relative;
+            z-index: 5;
+            margin: 0 0 32px;
+            font-size: clamp(48px, 7vw, 105px);
+            line-height: .78;
+            font-weight: 900;
+            letter-spacing: -.075em;
+            text-transform: uppercase;
+
+            color: #ddd;
+
+            text-shadow:
+                3px 4px 0 rgba(0,0,0,.9),
+                -1px -1px 0 rgba(255,255,255,.12),
+                0 0 35px rgba(255,255,255,.08);
+
+            animation:
+                titleFloat 5.5s ease-in-out infinite,
+                titleAppear 1.3s .2s var(--ease-out) both;
+        }
+
+        #main-menu h1::after {
+            content: "";
+            position: absolute;
+            left: -15px;
+            right: 15px;
+            bottom: -15px;
+            height: 1px;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255,255,255,.25),
+                transparent
+            );
+            animation: linePulse 3s ease-in-out infinite;
+        }
+
+        /* =========================================================
+           MENU BUTTONS
+           ========================================================= */
+
+        .menu-button {
+            position: relative;
+            z-index: 10;
+
+            width: clamp(220px, 22vw, 340px);
+            margin: 3px 0;
+
+            padding: 10px 14px;
+
+            border: 0;
+            border-left: 2px solid transparent;
+
+            background: transparent;
+            color: rgba(255,255,255,.66);
+
+            text-align: left;
+            font-size: clamp(13px, 1.1vw, 17px);
+            font-weight: 800;
+            letter-spacing: .16em;
+
+            cursor: pointer;
+
+            transform: translateX(-30px);
+            opacity: 0;
+
+            animation:
+                menuButtonEnter .8s var(--ease-out) forwards;
+
+            transition:
+                color .3s ease,
+                background .35s var(--ease-out),
+                transform .45s var(--ease-spring),
+                border-color .35s ease,
+                letter-spacing .45s var(--ease-spring),
+                padding-left .45s var(--ease-spring);
+        }
+
+        .menu-button:nth-of-type(1) { animation-delay: .55s; }
+        .menu-button:nth-of-type(2) { animation-delay: .62s; }
+        .menu-button:nth-of-type(3) { animation-delay: .69s; }
+        .menu-button:nth-of-type(4) { animation-delay: .76s; }
+        .menu-button:nth-of-type(5) { animation-delay: .83s; }
+        .menu-button:nth-of-type(6) { animation-delay: .90s; }
+        .menu-button:nth-of-type(7) { animation-delay: .97s; }
+        .menu-button:nth-of-type(8) { animation-delay: 1.04s; }
+        .menu-button:nth-of-type(9) { animation-delay: 1.11s; }
+        .menu-button:nth-of-type(10) { animation-delay: 1.18s; }
+
+        .menu-button::before {
+            content: ">";
+            position: absolute;
+            left: -12px;
+            opacity: 0;
+            transform: translateX(-8px);
+            transition:
+                opacity .3s ease,
+                transform .4s var(--ease-spring);
+        }
+
+        .menu-button::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 0;
+            height: 1px;
+            background: currentColor;
+            transition: width .45s var(--ease-out);
+        }
+
+        .menu-button:hover {
+            color: #fff;
+            background: linear-gradient(
+                90deg,
+                rgba(255,255,255,.08),
+                transparent
+            );
+            border-left-color: rgba(255,255,255,.7);
+            transform: translateX(12px) scale(1.025);
+            padding-left: 25px;
+            letter-spacing: .21em;
+        }
+
+        .menu-button:hover::before {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .menu-button:hover::after {
+            width: 100%;
+        }
+
+        .menu-button:active {
+            transform: translateX(12px) scale(.95);
+        }
+
+        .menu-button.hidden {
+            display: none;
+        }
+
+        /* =========================================================
+           SPECIAL NIGHT
+           ========================================================= */
+
+        #special-night-btn {
+            color: #d6a4ff;
+            text-shadow: 0 0 12px rgba(170,80,255,.35);
+        }
+
+        #special-night-btn:hover {
+            color: #f0d9ff;
+            text-shadow:
+                0 0 10px rgba(190,100,255,.5),
+                0 0 35px rgba(190,100,255,.2);
+        }
+
+        /* =========================================================
+           STAR DECORATION
+           ========================================================= */
+
+        #star-icon,
+        #star-icon-2 {
+            position: absolute;
+            z-index: 2;
+            pointer-events: none;
+            opacity: .3;
+            filter:
+                drop-shadow(0 0 10px rgba(255,255,255,.5));
+            animation:
+                starFloat 5s ease-in-out infinite,
+                starFlicker 4s steps(3) infinite;
+        }
+
+        #star-icon {
+            right: 16%;
+            top: 15%;
+            width: 100px;
+        }
+
+        #star-icon-2 {
+            right: 7%;
+            bottom: 17%;
+            width: 55px;
+            animation-delay: -2.4s;
+        }
+
+        /* =========================================================
+           MENU META
+           ========================================================= */
+
+        .copyright {
+            position: absolute;
+            left: clamp(7%, 10vw, 13%);
+            bottom: 35px;
+            width: 300px;
+            height: 1px;
+            background: rgba(255,255,255,.15);
+        }
+
+        .copyright::after {
+            content: "AP270STAR • EFRAIN'S HOUSE";
+            position: absolute;
+            top: 10px;
+            left: 0;
+            color: rgba(255,255,255,.25);
+            font-size: 8px;
+            letter-spacing: .3em;
+        }
+
+        .version {
+            position: absolute;
+            right: 25px;
+            bottom: 20px;
+            color: rgba(255,255,255,.2);
+            font-family: monospace;
+            font-size: 9px;
+            letter-spacing: .2em;
+        }
+
+        /* =========================================================
+           MODAL SYSTEM
+           ========================================================= */
+
+        .ui-modal {
+            position: absolute;
+            inset: 0;
+            z-index: 2000;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            padding: 30px;
+
+            background:
+                rgba(0,0,0,.78);
+
+            backdrop-filter: blur(12px);
+
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(1.04);
+
+            transition:
+                opacity .55s var(--ease-out),
+                transform .65s var(--ease-spring);
+        }
+
+        .ui-modal.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1);
+        }
+
+        .modal-window {
+            position: relative;
+
+            width: min(900px, 94vw);
+            max-height: 86vh;
+
+            overflow: auto;
+
+            padding: 30px;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(28,28,28,.94),
+                    rgba(5,5,5,.97)
+                );
+
+            border: 1px solid rgba(255,255,255,.16);
+            box-shadow:
+                0 30px 100px rgba(0,0,0,.8),
+                inset 0 0 50px rgba(255,255,255,.025);
+
+            transform: translateY(35px) scale(.96);
+            opacity: 0;
+
+            transition:
+                transform .7s var(--ease-spring),
+                opacity .5s var(--ease-out);
+        }
+
+        .ui-modal.active .modal-window {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+
+        .modal-window::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 3px,
+                    rgba(255,255,255,.015) 4px
+                );
+        }
+
+        .modal-title {
+            position: relative;
+            margin: 0 0 25px;
+            font-size: 27px;
+            letter-spacing: .18em;
+            text-transform: uppercase;
+        }
+
+        .modal-title span {
+            color: rgba(255,255,255,.28);
+            font-size: 10px;
+            vertical-align: middle;
+        }
+
+        .close-modal {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+
+            border: 0;
+            background: transparent;
+            color: rgba(255,255,255,.4);
+
+            font-size: 22px;
+            cursor: pointer;
+
+            transition:
+                transform .35s var(--ease-spring),
+                color .25s ease;
+        }
+
+        .close-modal:hover {
+            color: #fff;
+            transform: rotate(90deg) scale(1.15);
+        }
+
+        /* =========================================================
+           SETTINGS
+           ========================================================= */
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .setting-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 20px;
+
+            padding: 16px;
+
+            border: 1px solid rgba(255,255,255,.08);
+            background: rgba(255,255,255,.025);
+
+            transition:
+                transform .35s var(--ease-spring),
+                background .35s ease,
+                border-color .35s ease;
+        }
+
+        .setting-row:hover {
+            transform: translateX(5px);
+            background: rgba(255,255,255,.06);
+            border-color: rgba(255,255,255,.2);
+        }
+
+        .setting-name {
+            font-size: 11px;
+            letter-spacing: .18em;
+            color: rgba(255,255,255,.72);
+        }
+
+        .setting-description {
+            margin-top: 5px;
+            font-size: 9px;
+            color: rgba(255,255,255,.28);
+        }
+
+        .setting-control {
+            min-width: 150px;
+        }
+
+        .range-control {
+            width: 150px;
+            accent-color: #aaa;
+        }
+
+        .toggle {
+            position: relative;
+            width: 48px;
+            height: 25px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,.18);
+            background: #111;
+            cursor: pointer;
+            transition: .35s ease;
+        }
+
+        .toggle::after {
+            content: "";
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #777;
+            transition: .4s var(--ease-spring);
+        }
+
+        .toggle.active {
+            background: #393939;
+        }
+
+        .toggle.active::after {
+            left: 27px;
+            background: #eee;
+            box-shadow: 0 0 12px rgba(255,255,255,.35);
+        }
+
+        /* =========================================================
+           NIGHT SELECT
+           ========================================================= */
+
+        .night-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .night-card {
+            position: relative;
+            min-height: 150px;
+            padding: 20px;
+
+            border: 1px solid rgba(255,255,255,.1);
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(255,255,255,.07),
+                    rgba(255,255,255,.015)
+                );
+
+            overflow: hidden;
+            cursor: pointer;
+
+            transition:
+                transform .45s var(--ease-spring),
+                border-color .35s ease,
+                background .35s ease;
+        }
+
+        .night-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(
+                    120deg,
+                    transparent 25%,
+                    rgba(255,255,255,.08),
+                    transparent 70%
+                );
+            transform: translateX(-120%);
+            transition: transform .8s var(--ease-out);
+        }
+
+        .night-card:hover {
+            transform: translateY(-8px) scale(1.025);
+            border-color: rgba(255,255,255,.3);
+            background: rgba(255,255,255,.09);
+        }
+
+        .night-card:hover::before {
+            transform: translateX(120%);
+        }
+
+        .night-number {
+            font-size: 34px;
+            font-weight: 900;
+        }
+
+        .night-name {
+            margin-top: 8px;
+            color: rgba(255,255,255,.45);
+            font-size: 9px;
+            letter-spacing: .2em;
+        }
+
+        .night-difficulty {
+            position: absolute;
+            right: 15px;
+            bottom: 15px;
+            color: rgba(255,255,255,.35);
+            font-size: 9px;
+        }
+
+        .locked {
+            filter: grayscale(1);
+            opacity: .35;
+            cursor: not-allowed;
+        }
+
+        /* =========================================================
+           CUSTOM NIGHT
+           ========================================================= */
+
+        .custom-night-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .enemy-row {
+            display: grid;
+            grid-template-columns: 1fr 170px 40px;
+            align-items: center;
+            gap: 20px;
+
+            padding: 12px 15px;
+
+            border: 1px solid rgba(255,255,255,.08);
+            background: rgba(0,0,0,.3);
+
+            transition:
+                transform .3s var(--ease-spring),
+                background .3s ease;
+        }
+
+        .enemy-row:hover {
+            transform: translateX(5px);
+            background: rgba(255,255,255,.05);
+        }
+
+        .enemy-name {
+            font-size: 11px;
+            letter-spacing: .15em;
+        }
+
+        .enemy-ai {
+            width: 100%;
+            accent-color: #aaa;
+        }
+
+        .ai-value {
+            text-align: center;
+            font-family: monospace;
+            color: #aaa;
+        }
+
+        .challenge-strip {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .challenge-button {
+            padding: 10px 13px;
+            border: 1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.03);
+            color: rgba(255,255,255,.6);
+            cursor: pointer;
+
+            transition:
+                transform .3s var(--ease-spring),
+                background .3s ease,
+                color .3s ease;
+        }
+
+        .challenge-button:hover {
+            transform: translateY(-4px);
+            color: #fff;
+            background: rgba(255,255,255,.1);
+        }
+
+        /* =========================================================
+           EXTRAS
+           ========================================================= */
+
+        .extras-tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .extra-tab {
+            padding: 9px 13px;
+            border: 1px solid rgba(255,255,255,.1);
+            background: transparent;
+            color: rgba(255,255,255,.4);
+            cursor: pointer;
+            transition: .3s var(--ease-spring);
+        }
+
+        .extra-tab:hover,
+        .extra-tab.active {
+            color: #fff;
+            background: rgba(255,255,255,.08);
+            transform: translateY(-2px);
+        }
+
+        .extra-gallery {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .extra-card {
+            min-height: 110px;
+            padding: 15px;
+            border: 1px solid rgba(255,255,255,.08);
+            background:
+                linear-gradient(
+                    145deg,
+                    #161616,
+                    #080808
+                );
+            cursor: pointer;
+            transition:
+                transform .4s var(--ease-spring),
+                border-color .3s ease;
+        }
+
+        .extra-card:hover {
+            transform: translateY(-7px) rotateX(2deg);
+            border-color: rgba(255,255,255,.3);
+        }
+
+        .extra-card-title {
+            font-size: 10px;
+            letter-spacing: .15em;
+        }
+
+        .extra-card-status {
+            margin-top: 20px;
+            color: rgba(255,255,255,.25);
+            font-size: 8px;
+        }
+
+        /* =========================================================
+           ACHIEVEMENTS
+           ========================================================= */
+
+        .achievement-list {
+            display: grid;
+            gap: 7px;
+        }
+
+        .achievement {
+            display: grid;
+            grid-template-columns: 48px 1fr auto;
+            align-items: center;
+            gap: 15px;
+
+            padding: 13px;
+
+            border: 1px solid rgba(255,255,255,.07);
+            background: rgba(255,255,255,.02);
+
+            transition:
+                transform .35s var(--ease-spring),
+                background .3s ease;
+        }
+
+        .achievement:hover {
+            transform: translateX(7px);
+            background: rgba(255,255,255,.05);
+        }
+
+        .achievement-icon {
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(255,255,255,.15);
+            background: #111;
+            font-size: 16px;
+        }
+
+        .achievement-name {
+            font-size: 11px;
+            letter-spacing: .12em;
+        }
+
+        .achievement-description {
+            margin-top: 4px;
+            color: rgba(255,255,255,.3);
+            font-size: 9px;
+        }
+
+        .achievement-state {
+            color: rgba(255,255,255,.3);
+            font-size: 8px;
+            letter-spacing: .15em;
+        }
+
+        /* =========================================================
+           CREDITS
+           ========================================================= */
+
+        #credits-modal .modal-window {
+            min-height: 70vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .credits-scroll {
+            flex: 1;
+            overflow: hidden;
+            text-align: center;
+            position: relative;
+        }
+
+        .credits-content {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 100%;
+            animation: creditsRoll 32s linear infinite;
+        }
+
+        .credits-block {
+            margin: 55px 0;
+        }
+
+        .credits-small {
+            color: rgba(255,255,255,.3);
+            font-size: 10px;
+            letter-spacing: .3em;
+        }
+
+        .credits-large {
+            margin-top: 12px;
+            font-size: 25px;
+            font-weight: 900;
+            letter-spacing: .12em;
+        }
+
+        .credits-special {
+            color: #ddd;
+            text-shadow:
+                0 0 15px rgba(255,255,255,.25);
+        }
+
+        /* =========================================================
+           CONTROLS
+           ========================================================= */
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .keybind {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px;
+            border: 1px solid rgba(255,255,255,.08);
+            background: rgba(255,255,255,.025);
+        }
+
+        .key {
+            padding: 5px 9px;
+            min-width: 35px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,.2);
+            background: #111;
+            font-family: monospace;
+            box-shadow: 0 2px 0 #000;
+        }
+
+        /* =========================================================
+           CUTSCENE
+           ========================================================= */
+
+        #cutscene {
+            position: absolute;
+            inset: 0;
+            z-index: 1800;
+            background: #000;
+
+            transition:
+                opacity .7s var(--ease-out),
+                transform 1s var(--ease-out);
+        }
+
+        #cutscene.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(1.06);
+        }
+
+        #cutscene img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            animation: cutsceneSlowZoom 12s ease-out forwards;
+        }
+
+        .cutscene-hint {
+            position: absolute;
+            bottom: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,.45);
+            font-size: 10px;
+            letter-spacing: .3em;
+            animation: hintPulse 2s ease-in-out infinite;
+        }
+
+        /* =========================================================
+           NIGHT INTRO
+           ========================================================= */
+
+        #night-intro {
+            position: absolute;
+            inset: 0;
+            z-index: 1900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+
+            transition:
+                opacity 1s var(--ease-out),
+                filter 1s var(--ease-out);
+        }
+
+        #night-intro.hidden {
+            opacity: 0;
+            pointer-events: none;
+            filter: blur(20px);
+        }
+
+        #night-intro-text {
+            font-size: clamp(40px, 7vw, 100px);
+            font-weight: 900;
+            letter-spacing: .05em;
+            text-shadow:
+                0 0 20px rgba(255,255,255,.2);
+
+            animation:
+                nightIntroText 2s var(--ease-out) both,
+                nightTextFlicker 3s 1s steps(2) infinite;
+        }
+
+        /* =========================================================
+           GAME OVER
+           ========================================================= */
+
+        #game-over {
+            position: absolute;
+            inset: 0;
+            z-index: 2100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+
+            transition:
+                opacity .8s var(--ease-out),
+                transform .8s var(--ease-out);
+        }
+
+        #game-over.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(1.08);
+        }
+
+        #game-over-static {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: .32;
+        }
+
+        #game-over-content {
+            position: relative;
+            z-index: 5;
+            text-align: center;
+
+            animation:
+                gameOverEnter 1.1s var(--ease-out);
+        }
+
+        #game-over-text {
+            margin: 0;
+            font-size: clamp(35px, 6vw, 80px);
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            text-shadow:
+                0 3px 0 #000,
+                0 0 30px rgba(255,0,0,.18);
+            animation: deathTextFlicker 1.5s steps(2) infinite;
+        }
+
+        #game-over-subtitle {
+            color: rgba(255,255,255,.4);
+            letter-spacing: .25em;
+            font-size: 10px;
+        }
+
+        #restart,
+        #main-menu-btn {
+            margin: 8px;
+            padding: 12px 20px;
+            border: 1px solid rgba(255,255,255,.18);
+            background: rgba(0,0,0,.6);
+            color: #ddd;
+            cursor: pointer;
+
+            transition:
+                transform .4s var(--ease-spring),
+                background .3s ease,
+                border-color .3s ease;
+        }
+
+        #restart:hover,
+        #main-menu-btn:hover {
+            transform: translateY(-5px) scale(1.03);
+            background: rgba(255,255,255,.1);
+            border-color: rgba(255,255,255,.45);
+        }
+
+        /* =========================================================
+           TUTORIAL
+           ========================================================= */
+
+        #tutorial-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 2200;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background: rgba(0,0,0,.78);
+            backdrop-filter: blur(10px);
+
+            transition:
+                opacity .5s var(--ease-out);
+        }
+
+        #tutorial-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #tutorial-content {
+            width: min(700px, 90vw);
+            padding: 35px;
+
+            border: 1px solid rgba(255,255,255,.16);
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(22,22,22,.96),
+                    rgba(5,5,5,.98)
+                );
+
+            box-shadow: 0 30px 100px rgba(0,0,0,.8);
+
+            animation: modalPop .8s var(--ease-spring);
+        }
+
+        #tutorial-content h2 {
+            margin-top: 0;
+            font-size: 20px;
+            letter-spacing: .1em;
+        }
+
+        #tutorial-content p {
+            color: rgba(255,255,255,.5);
+            line-height: 1.8;
+            font-size: 11px;
+        }
+
+        #tutorial-got-it {
+            margin-top: 15px;
+            padding: 12px 20px;
+            border: 1px solid rgba(255,255,255,.2);
+            background: #111;
+            color: #fff;
+            cursor: pointer;
+
+            transition:
+                transform .35s var(--ease-spring),
+                background .3s ease;
+        }
+
+        #tutorial-got-it:hover {
+            transform: translateY(-4px);
+            background: #222;
+        }
+
+        /* =========================================================
+           PARTICLE LAYER
+           ========================================================= */
+
+        #particle-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 40;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.25);
+            animation:
+                particleFloat linear infinite,
+                particleFade ease-in-out infinite alternate;
+        }
+
+        /* =========================================================
+           DEBUG / SYSTEM HUD
+           ========================================================= */
+
+        #system-hud {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            z-index: 1000;
+            pointer-events: none;
+
+            color: rgba(255,255,255,.18);
+            font-family: monospace;
+            font-size: 8px;
+            line-height: 1.5;
+
+            text-align: right;
+        }
+
+        #system-hud .hud-line {
+            animation: hudFlicker 4s steps(2) infinite;
+        }
+
+        /* =========================================================
+           RESPONSIVE
+           ========================================================= */
+
+        @media (max-width: 700px) {
+            #main-menu {
+                padding-left: 8%;
+            }
+
+            #main-menu h1 {
+                font-size: 13vw;
+            }
+
+            .settings-grid,
+            .control-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .night-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .extra-gallery {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .enemy-row {
+                grid-template-columns: 1fr 100px 35px;
+            }
+
+            #shock-hawking-btn,
+            #play-sound-btn {
+                min-width: 120px;
+                padding: 10px;
+            }
+
+            #play-sound-btn {
+                left: 155px;
+            }
+        }
+
+        /* =========================================================
+           KEYFRAMES
+           ========================================================= */
+
+        @keyframes scanlineDrift {
+            from { transform: translateY(0); }
+            to { transform: translateY(12px); }
+        }
+
+        @keyframes loadingNoise {
+            0% { transform: translate(0,0); }
+            25% { transform: translate(3%,-2%); }
+            50% { transform: translate(-2%,4%); }
+            75% { transform: translate(4%,1%); }
+            100% { transform: translate(0,0); }
+        }
+
+        @keyframes bootScan {
+            0% { transform: translateY(-50vh); }
+            100% { transform: translateY(50vh); }
+        }
+
+        @keyframes loadingTextPulse {
+            0%,100% { opacity: .4; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes loadingTextGlitch {
+            0%,90%,100% { transform: translateX(0); }
+            92% { transform: translateX(-3px); }
+            94% { transform: translateX(2px); }
+        }
+
+        @keyframes loadingFadeOut {
+            to {
+                opacity: 0;
+                visibility: hidden;
+            }
+        }
+
+        @keyframes atmosphereBreathing {
+            0%,100% { transform: scale(1); opacity: .8; }
+            50% { transform: scale(1.025); opacity: 1; }
+        }
+
+        @keyframes uiSlideIn {
+            from {
+                opacity: 0;
+                transform: translate(-25px,-15px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(0,0);
+            }
+        }
+
+        @keyframes uiSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(25px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes tinyFloat {
+            0%,100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        @keyframes cameraOpen {
+            from {
+                opacity: 0;
+                transform: scale(1.04);
+                filter: brightness(1.8) blur(4px);
+            }
+            40% {
+                filter: brightness(.65) blur(1px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+                filter: none;
+            }
+        }
+
+        @keyframes camLabelIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes errorBlink {
+            0%,45% { opacity: 1; }
+            46%,100% { opacity: .18; }
+        }
+
+        @keyframes gridMove {
+            from { background-position: 0 0; }
+            to { background-position: 80px 80px; }
+        }
+
+        @keyframes menuLightDrift {
+            0%,100% {
+                transform: translate(0,0) scale(1);
+                opacity: .7;
+            }
+            50% {
+                transform: translate(-5%,3%) scale(1.08);
+                opacity: 1;
+            }
+        }
+
+        @keyframes titleAppear {
+            from {
+                opacity: 0;
+                transform: translateX(-50px) skewX(-5deg);
+                filter: blur(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0) skewX(0);
+                filter: blur(0);
+            }
+        }
+
+        @keyframes titleFloat {
+            0%,100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        @keyframes linePulse {
+            0%,100% { opacity: .25; transform: scaleX(.7); }
+            50% { opacity: .7; transform: scaleX(1); }
+        }
+
+        @keyframes menuButtonEnter {
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes starFloat {
+            0%,100% { transform: translate(0,0) rotate(0); }
+            50% { transform: translate(-10px,-15px) rotate(8deg); }
+        }
+
+        @keyframes starFlicker {
+            0%,90%,100% { opacity: .3; }
+            92% { opacity: .08; }
+            94% { opacity: .4; }
+        }
+
+        @keyframes cutsceneSlowZoom {
+            from { transform: scale(1); }
+            to { transform: scale(1.06); }
+        }
+
+        @keyframes hintPulse {
+            0%,100% { opacity: .25; }
+            50% { opacity: .75; }
+        }
+
+        @keyframes nightIntroText {
+            from {
+                opacity: 0;
+                transform: scale(.7);
+                filter: blur(15px);
+                letter-spacing: .5em;
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+                filter: blur(0);
+                letter-spacing: .05em;
+            }
+        }
+
+        @keyframes nightTextFlicker {
+            0%,90%,100% { opacity: 1; }
+            92% { opacity: .4; }
+            94% { opacity: 1; }
+        }
+
+        @keyframes gameOverEnter {
+            from {
+                opacity: 0;
+                transform: translateY(40px) scale(.9);
+                filter: blur(10px);
+            }
+            to {
+                opacity: 1;
+                transform: none;
+                filter: none;
+            }
+        }
+
+        @keyframes deathTextFlicker {
+            0%,85%,100% { opacity: 1; }
+            87% { opacity: .3; }
+            89% { opacity: 1; }
+        }
+
+        @keyframes modalPop {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(.92);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes particleFloat {
+            from {
+                transform: translateY(110vh) translateX(0);
+            }
+            to {
+                transform: translateY(-20vh) translateX(40px);
+            }
+        }
+
+        @keyframes particleFade {
+            from { opacity: .05; }
+            to { opacity: .35; }
+        }
+
+        @keyframes hudFlicker {
+            0%,95%,100% { opacity: 1; }
+            96% { opacity: .2; }
+        }
+
+        @keyframes creditsRoll {
+            from {
+                transform: translateY(0);
+            }
+            to {
+                transform: translateY(-250%);
+            }
+        }
+    </style>
 </head>
+
 <body>
 
-  <div id="loading-screen">
-  <span id="loading-text">LOADING.</span>
+<div id="loading-screen">
+    <span id="loading-text">INITIALIZING HOUSE SYSTEMS<span id="loading-dots">...</span></span>
 </div>
 
+<div id="game-container">
 
-    <div id="game-container">
-   
-        <div id="game-screen">
-            <img id="current-scene" src="" alt="" style="display: none;">
-            
-       
-            <div id="hotspots"></div>
-            
-      
-            <div id="ui-overlay">
-            
-                <div id="top-left-ui">
-                    <div id="time-display"><span id="time-value">12 AM</span></div>
-                    <div id="night-display">NIGHT <span id="night-value">1</span></div>
+    <!-- =========================================================
+         PARTICLES / ATMOSPHERE
+         ========================================================= -->
+
+    <div id="particle-layer"></div>
+
+    <div id="system-hud">
+        <div class="hud-line">HOUSE_OS // ONLINE</div>
+        <div class="hud-line">SIGNAL // UNSTABLE</div>
+        <div class="hud-line">CAM_NET // CONNECTED</div>
+    </div>
+
+    <!-- =========================================================
+         GAME SCREEN
+         ========================================================= -->
+
+    <div id="game-screen">
+
+        <img
+            id="current-scene"
+            src=""
+            alt=""
+            style="display:none;"
+        >
+
+        <div id="hotspots"></div>
+
+        <div id="ui-overlay">
+
+            <div id="top-left-ui">
+                <div id="time-display">
+                    <span id="time-value">12 AM</span>
                 </div>
-                
-         
-                <div id="bottom-right-ui">
-                    <div id="oxygen-display">
-                        <img src="assets/images/fa3.png" alt="Vent" class="vent-icon">
-                        <span id="power-value">100</span><span class="percent-sign">%</span><span class="oxygen-unit">O<sub>2</sub></span>
-                    </div>
+
+                <div id="night-display">
+                    NIGHT <span id="night-value">1</span>
                 </div>
             </div>
-        </div>
 
+            <div id="bottom-right-ui">
+                <div id="oxygen-display">
 
-        <div id="camera-panel" class="hidden">
-            <div id="current-cam-label">CAM 11</div>
-            <div id="camera-error-label">ERR</div>
-  
-            <div id="character-overlay"></div>
-            <div id="camera-grid"></div>
-            <button id="shock-hawking-btn">ELECTROCUTE</button>
-            <button id="play-sound-btn">PLAY SOUND</button>
-       
-            <video id="camera-static-video" loop muted playsinline>
-                <source src="assets/vedio/202512191935.webm" type="video/webm">
-            </video>
-        </div>
+                    <img
+                        src="assets/images/fa3.png"
+                        alt="Vent"
+                        class="vent-icon"
+                    >
 
+                    <span id="power-value">100</span>
+                    <span class="percent-sign">%</span>
+                    <span class="oxygen-unit">
+                        O<sub>2</sub>
+                    </span>
 
-        <div id="cutscene" class="hidden">
-            <img src="assets/images/cutscene.png" alt="Cutscene">
-            <div class="cutscene-hint">Click to continue...</div>
-        </div>
-
-  
-        <div id="night-intro" class="hidden">
-            <div id="night-intro-text">NIGHT 1</div>
-        </div>
-
-
-        <div id="main-menu">
-            <img id="star-icon" class="hidden" src="assets/images/star.png" alt="Star">
-            <img id="star-icon-2" class="hidden" src="assets/images/star.png" alt="Star 2">
-            <h1>FIVE<br>NIGHTS<br>AT<br>EFRAIN'S<br>HOUSE</h1>
-            <button id="start-game" onclick="startCutscene()">NEW GAME</button>
-            <button id="continue-game" class="hidden">CONTINUE</button>
-            <button id="special-night-btn" class="hidden">EFRAINS'S GOTH LATINA NIGHT</button>
-            <div class="copyright"></div>
-            <div class="version">alpha v0.1</div>
-        </div>
-        
-    
-        <canvas id="static-canvas"></canvas>
-        
- 
-        <audio id="menu-music" loop>
-            <source src="assets/sounds/music3.ogg" type="audio/ogg">
-        </audio>
-
-    
-        <div id="game-over" class="hidden">
-         
-            <video id="game-over-static" loop muted playsinline autoplay>
-                <source src="assets/vedio/202512191935.webm" type="video/webm">
-            </video>
-            <div id="game-over-content">
-                <h2 id="game-over-text"></h2>
-                <p id="game-over-subtitle" class="hidden"></p>
-                <button id="restart">Restart</button>
-                <button id="main-menu-btn">Main Menu</button>
+                </div>
             </div>
-        </div>
 
-       
-        <div id="tutorial-overlay" class="hidden">
-            <div id="tutorial-content">
-                <h2>DEFEND YOURSELF AGAINST EPSTEIN</h2>
-                <p>
-                    EPSTEIN ALWAYS STARTS AT CAM 11. USE THE CAMERA'S AUDIO LURE TO KEEP EPSTEIN FAR AWAY FROM YOU. 
-                    MAKE SURE THE CAMERA YOU'RE PLAYING THE SOUND IN IS NEXT TO THE CAMERA WHERE EPSTEIN IS. 
-                    PLAYING SOUND IN ONLY ONE SPOT WILL NOT WORK IF YOU DO IT TWICE OR MORE IN A ROW. 
-                    USING THE AUDIO LURE TOO MUCH WILL LEAD TO THE CAMERAS BREAKING. 
-                    TO FIX THEM HEAD TO THE CONTROL PANEL AND RESTART THE CAMERAS LIKE YOU JUST DID. 
-                    EPSTEIN DOES NOT ATTACK THROUGH THE VENTS SO DON'T BOTHER CLOSING THEM FOR THIS NIGHT.
-                </p>
-                <button id="tutorial-got-it">GOT IT</button>
-            </div>
         </div>
     </div>
 
-    <script src="js/GameState.js"></script>
-    <script src="js/AssetManager.js"></script>
-    <script src="js/UIManager.js"></script>
-    <script src="js/CameraSystem.js"></script>
-    <script src="js/EnemyAI.js"></script>
-    <script src="js/InputHandler.js"></script>
-    <script src="js/StaticNoise.js"></script>
-    <script src="js/ScaryFaceFlicker.js"></script>
-    <script src="js/Game.js"></script>
-    <script src="js/main.js"></script>
+    <!-- =========================================================
+         CAMERA SYSTEM
+         ========================================================= -->
+
+    <div id="camera-panel" class="hidden">
+
+        <div id="current-cam-label">
+            CAM 11
+        </div>
+
+        <div id="camera-error-label">
+            ERR
+        </div>
+
+        <div id="character-overlay"></div>
+
+        <div id="camera-grid"></div>
+
+        <button id="shock-hawking-btn">
+            ELECTROCUTE
+        </button>
+
+        <button id="play-sound-btn">
+            PLAY SOUND
+        </button>
+
+        <video
+            id="camera-static-video"
+            loop
+            muted
+            playsinline
+        >
+            <source
+                src="assets/vedio/202512191935.webm"
+                type="video/webm"
+            >
+        </video>
+
+    </div>
+
+    <!-- =========================================================
+         CUTSCENE
+         ========================================================= -->
+
+    <div id="cutscene" class="hidden">
+
+        <img
+            src="assets/images/cutscene.png"
+            alt="Cutscene"
+        >
+
+        <div class="cutscene-hint">
+            CLICK TO CONTINUE
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         NIGHT INTRO
+         ========================================================= -->
+
+    <div id="night-intro" class="hidden">
+        <div id="night-intro-text">
+            NIGHT 1
+        </div>
+    </div>
+
+    <!-- =========================================================
+         MAIN MENU
+         ========================================================= -->
+
+    <div id="main-menu">
+
+        <img
+            id="star-icon"
+            class="hidden"
+            src="assets/images/star.png"
+            alt="Star"
+        >
+
+        <img
+            id="star-icon-2"
+            class="hidden"
+            src="assets/images/star.png"
+            alt="Star 2"
+        >
+
+        <h1>
+            FIVE<br>
+            NIGHTS<br>
+            AT<br>
+            EFRAIN'S<br>
+            HOUSE
+        </h1>
+
+        <button
+            id="start-game"
+            class="menu-button"
+            onclick="startCutscene()"
+        >
+            NEW GAME
+        </button>
+
+        <button
+            id="continue-game"
+            class="menu-button hidden"
+        >
+            CONTINUE
+        </button>
+
+        <button
+            id="night-select-btn"
+            class="menu-button"
+            onclick="openModal('night-select-modal')"
+        >
+            NIGHT SELECT
+        </button>
+
+        <button
+            id="custom-night-btn"
+            class="menu-button"
+            onclick="openModal('custom-night-modal')"
+        >
+            CUSTOM NIGHT
+        </button>
+
+        <button
+            id="extras-btn"
+            class="menu-button"
+            onclick="openModal('extras-modal')"
+        >
+            EXTRAS
+        </button>
+
+        <button
+            id="achievements-btn"
+            class="menu-button"
+            onclick="openModal('achievements-modal')"
+        >
+            ACHIEVEMENTS
+        </button>
+
+        <button
+            id="how-to-play-btn"
+            class="menu-button"
+            onclick="openModal('controls-modal')"
+        >
+            HOW TO PLAY
+        </button>
+
+        <button
+            id="settings-btn"
+            class="menu-button"
+            onclick="openModal('settings-modal')"
+        >
+            SETTINGS
+        </button>
+
+        <button
+            id="credits-btn"
+            class="menu-button"
+            onclick="openModal('credits-modal')"
+        >
+            CREDITS
+        </button>
+
+        <button
+            id="special-night-btn"
+            class="menu-button hidden"
+        >
+            EFRAIN'S GOTH LATINA NIGHT
+        </button>
+
+        <div class="copyright"></div>
+
+        <div class="version">
+            ALPHA V0.1 // BUILD 082426
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         NIGHT SELECT MODAL
+         ========================================================= -->
+
+    <div
+        id="night-select-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('night-select-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                NIGHT SELECT
+                <span>// SHIFT DATABASE</span>
+            </h2>
+
+            <div class="night-grid">
+
+                <div class="night-card">
+                    <div class="night-number">01</div>
+                    <div class="night-name">FIRST SHIFT</div>
+                    <div class="night-difficulty">★☆☆☆☆</div>
+                </div>
+
+                <div class="night-card locked">
+                    <div class="night-number">02</div>
+                    <div class="night-name">SOMETHING MOVED</div>
+                    <div class="night-difficulty">★★☆☆☆</div>
+                </div>
+
+                <div class="night-card locked">
+                    <div class="night-number">03</div>
+                    <div class="night-name">THE HOUSE KNOWS</div>
+                    <div class="night-difficulty">★★★☆☆</div>
+                </div>
+
+                <div class="night-card locked">
+                    <div class="night-number">04</div>
+                    <div class="night-name">NO SIGNAL</div>
+                    <div class="night-difficulty">★★★★☆</div>
+                </div>
+
+                <div class="night-card locked">
+                    <div class="night-number">05</div>
+                    <div class="night-name">LAST SHIFT</div>
+                    <div class="night-difficulty">★★★★★</div>
+                </div>
+
+                <div class="night-card locked">
+                    <div class="night-number">06</div>
+                    <div class="night-name">AFTER HOURS</div>
+                    <div class="night-difficulty">★★★★★</div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- =========================================================
+         CUSTOM NIGHT
+         ========================================================= -->
+
+    <div
+        id="custom-night-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('custom-night-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                CUSTOM NIGHT
+                <span>// THREAT CONFIGURATION</span>
+            </h2>
+
+            <div class="custom-night-list">
+
+                <div class="enemy-row">
+                    <div class="enemy-name">EFRAIN</div>
+                    <input
+                        class="enemy-ai"
+                        type="range"
+                        min="0"
+                        max="20"
+                        value="5"
+                        oninput="this.nextElementSibling.textContent=this.value"
+                    >
+                    <div class="ai-value">5</div>
+                </div>
+
+                <div class="enemy-row">
+                    <div class="enemy-name">THE SHADOW</div>
+                    <input
+                        class="enemy-ai"
+                        type="range"
+                        min="0"
+                        max="20"
+                        value="0"
+                        oninput="this.nextElementSibling.textContent=this.value"
+                    >
+                    <div class="ai-value">0</div>
+                </div>
+
+                <div class="enemy-row">
+                    <div class="enemy-name">THE VISITOR</div>
+                    <input
+                        class="enemy-ai"
+                        type="range"
+                        min="0"
+                        max="20"
+                        value="0"
+                        oninput="this.nextElementSibling.textContent=this.value"
+                    >
+                    <div class="ai-value">0</div>
+                </div>
+
+                <div class="enemy-row">
+                    <div class="enemy-name">UNKNOWN</div>
+                    <input
+                        class="enemy-ai"
+                        type="range"
+                        min="0"
+                        max="20"
+                        value="0"
+                        oninput="this.nextElementSibling.textContent=this.value"
+                    >
+                    <div class="ai-value">0</div>
+                </div>
+
+            </div>
+
+            <div class="challenge-strip">
+
+                <button class="challenge-button">
+                    NO POWER
+                </button>
+
+                <button class="challenge-button">
+                    CAMERA FAILURE
+                </button>
+
+                <button class="challenge-button">
+                    DOUBLE TROUBLE
+                </button>
+
+                <button class="challenge-button">
+                    BLACKOUT
+                </button>
+
+                <button class="challenge-button">
+                    ENDLESS
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         SETTINGS
+         ========================================================= -->
+
+    <div
+        id="settings-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('settings-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                SETTINGS
+                <span>// HOUSE SYSTEM</span>
+            </h2>
+
+            <div class="settings-grid">
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">MASTER VOLUME</div>
+                        <div class="setting-description">
+                            Overall game volume.
+                        </div>
+                    </div>
+
+                    <input
+                        class="range-control"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="80"
+                    >
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">MUSIC VOLUME</div>
+                        <div class="setting-description">
+                            Menu and ambient music.
+                        </div>
+                    </div>
+
+                    <input
+                        class="range-control"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="70"
+                    >
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">SFX VOLUME</div>
+                        <div class="setting-description">
+                            Effects and gameplay sounds.
+                        </div>
+                    </div>
+
+                    <input
+                        class="range-control"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="85"
+                    >
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">STATIC</div>
+                        <div class="setting-description">
+                            Camera interference intensity.
+                        </div>
+                    </div>
+
+                    <input
+                        class="range-control"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="35"
+                    >
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">CRT EFFECT</div>
+                        <div class="setting-description">
+                            Analog display simulation.
+                        </div>
+                    </div>
+
+                    <button class="toggle active"></button>
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">SCANLINES</div>
+                        <div class="setting-description">
+                            Horizontal display lines.
+                        </div>
+                    </div>
+
+                    <button class="toggle active"></button>
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">SCREEN SHAKE</div>
+                        <div class="setting-description">
+                            Impact and jumpscare movement.
+                        </div>
+                    </div>
+
+                    <button class="toggle active"></button>
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">FLOATING UI</div>
+                        <div class="setting-description">
+                            Animated interface movement.
+                        </div>
+                    </div>
+
+                    <button class="toggle active"></button>
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">FLASH REDUCTION</div>
+                        <div class="setting-description">
+                            Reduces intense flashes.
+                        </div>
+                    </div>
+
+                    <button class="toggle"></button>
+                </div>
+
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-name">FULLSCREEN</div>
+                        <div class="setting-description">
+                            Expand the game display.
+                        </div>
+                    </div>
+
+                    <button
+                        class="toggle"
+                        onclick="toggleFullscreen()"
+                    ></button>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         EXTRAS
+         ========================================================= -->
+
+    <div
+        id="extras-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('extras-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                EXTRAS
+                <span>// ARCHIVE</span>
+            </h2>
+
+            <div class="extras-tabs">
+
+                <button class="extra-tab active">
+                    CHARACTERS
+                </button>
+
+                <button class="extra-tab">
+                    JUMPSCARES
+                </button>
+
+                <button class="extra-tab">
+                    IMAGES
+                </button>
+
+                <button class="extra-tab">
+                    LORE
+                </button>
+
+                <button class="extra-tab">
+                    SECRETS
+                </button>
+
+            </div>
+
+            <div class="extra-gallery">
+
+                <div class="extra-card">
+                    <div class="extra-card-title">EFRain</div>
+                    <div class="extra-card-status">
+                        UNLOCKED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">UNKNOWN</div>
+                    <div class="extra-card-status">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">THE SHADOW</div>
+                    <div class="extra-card-status">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">???</div>
+                    <div class="extra-card-status">
+                        CLASSIFIED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">CAMERA 11</div>
+                    <div class="extra-card-status">
+                        AVAILABLE
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">HOUSE MAP</div>
+                    <div class="extra-card-status">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">NIGHT PHOTO</div>
+                    <div class="extra-card-status">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="extra-card">
+                    <div class="extra-card-title">???</div>
+                    <div class="extra-card-status">
+                        CLASSIFIED
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         ACHIEVEMENTS
+         ========================================================= -->
+
+    <div
+        id="achievements-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('achievements-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                ACHIEVEMENTS
+                <span>// RECORDS</span>
+            </h2>
+
+            <div class="achievement-list">
+
+                <div class="achievement">
+                    <div class="achievement-icon">I</div>
+                    <div>
+                        <div class="achievement-name">
+                            FIRST NIGHT
+                        </div>
+                        <div class="achievement-description">
+                            Survive your first shift.
+                        </div>
+                    </div>
+                    <div class="achievement-state">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="achievement">
+                    <div class="achievement-icon">II</div>
+                    <div>
+                        <div class="achievement-name">
+                            WATCHING
+                        </div>
+                        <div class="achievement-description">
+                            Check every available camera.
+                        </div>
+                    </div>
+                    <div class="achievement-state">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="achievement">
+                    <div class="achievement-icon">III</div>
+                    <div>
+                        <div class="achievement-name">
+                            DON'T LOOK AWAY
+                        </div>
+                        <div class="achievement-description">
+                            Find something that wasn't there before.
+                        </div>
+                    </div>
+                    <div class="achievement-state">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="achievement">
+                    <div class="achievement-icon">IV</div>
+                    <div>
+                        <div class="achievement-name">
+                            BLACKOUT
+                        </div>
+                        <div class="achievement-description">
+                            Survive with critical power.
+                        </div>
+                    </div>
+                    <div class="achievement-state">
+                        LOCKED
+                    </div>
+                </div>
+
+                <div class="achievement">
+                    <div class="achievement-icon">V</div>
+                    <div>
+                        <div class="achievement-name">
+                            SIX AM
+                        </div>
+                        <div class="achievement-description">
+                            Complete the main story.
+                        </div>
+                    </div>
+                    <div class="achievement-state">
+                        LOCKED
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         CONTROLS
+         ========================================================= -->
+
+    <div
+        id="controls-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('controls-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                HOW TO PLAY
+                <span>// CONTROL MANUAL</span>
+            </h2>
+
+            <div class="control-grid">
+
+                <div class="keybind">
+                    <span>CAMERAS</span>
+                    <span class="key">SPACE</span>
+                </div>
+
+                <div class="keybind">
+                    <span>LEFT</span>
+                    <span class="key">A</span>
+                </div>
+
+                <div class="keybind">
+                    <span>RIGHT</span>
+                    <span class="key">D</span>
+                </div>
+
+                <div class="keybind">
+                    <span>INTERACT</span>
+                    <span class="key">E</span>
+                </div>
+
+                <div class="keybind">
+                    <span>PAUSE</span>
+                    <span class="key">ESC</span>
+                </div>
+
+                <div class="keybind">
+                    <span>FLASHLIGHT</span>
+                    <span class="key">F</span>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         CREDITS
+         ========================================================= -->
+
+    <div
+        id="credits-modal"
+        class="ui-modal"
+    >
+
+        <div class="modal-window">
+
+            <button
+                class="close-modal"
+                onclick="closeModal('credits-modal')"
+            >
+                ×
+            </button>
+
+            <h2 class="modal-title">
+                CREDITS
+                <span>// ARCHIVE</span>
+            </h2>
+
+            <div class="credits-scroll">
+
+                <div class="credits-content">
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            A HORROR GAME BY
+                        </div>
+
+                        <div class="credits-large credits-special">
+                            AP270STAR
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            FIVE NIGHTS AT EFRAIN'S HOUSE
+                        </div>
+
+                        <div class="credits-large">
+                            ORIGINAL DEVELOPMENT
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            BASE / ORIGINAL GAME
+                        </div>
+
+                        <div class="credits-large">
+                            FIVE NIGHTS AT EPSTEIN'S
+                        </div>
+
+                        <div class="credits-small">
+                            CREDIT TO THE ORIGINAL DEVELOPER
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            NEW GAME
+                        </div>
+
+                        <div class="credits-large credits-special">
+                            AP270STAR
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            DESIGN
+                        </div>
+
+                        <div class="credits-large">
+                            AP270STAR
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            PROGRAMMING
+                        </div>
+
+                        <div class="credits-large">
+                            AP270STAR
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            SPECIAL THANKS
+                        </div>
+
+                        <div class="credits-large">
+                            EVERYONE WHO PLAYED
+                        </div>
+                    </div>
+
+                    <div class="credits-block">
+                        <div class="credits-small">
+                            THANK YOU FOR PLAYING
+                        </div>
+
+                        <div class="credits-large">
+                            SEE YOU AT 6 AM.
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         GAME OVER
+         ========================================================= -->
+
+    <div id="game-over" class="hidden">
+
+        <video
+            id="game-over-static"
+            loop
+            muted
+            playsinline
+            autoplay
+        >
+            <source
+                src="assets/vedio/202512191935.webm"
+                type="video/webm"
+            >
+        </video>
+
+        <div id="game-over-content">
+
+            <h2 id="game-over-text"></h2>
+
+            <p
+                id="game-over-subtitle"
+                class="hidden"
+            ></p>
+
+            <button id="restart">
+                RESTART
+            </button>
+
+            <button id="main-menu-btn">
+                MAIN MENU
+            </button>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         TUTORIAL
+         ========================================================= -->
+
+    <div
+        id="tutorial-overlay"
+        class="hidden"
+    >
+
+        <div id="tutorial-content">
+
+            <h2>
+                DEFEND YOURSELF
+            </h2>
+
+            <p>
+                THE HOUSE IS NOT EMPTY.
+
+                <br><br>
+
+                USE THE CAMERA NETWORK TO TRACK MOVEMENT.
+                AUDIO LURES CAN DISTRACT THREATS, BUT USING
+                THEM REPEATEDLY CAN DESTABILIZE THE CAMERA SYSTEM.
+
+                <br><br>
+
+                WATCH YOUR RESOURCES.
+                WATCH YOUR CAMERAS.
+                AND MOST IMPORTANTLY...
+
+                <br><br>
+
+                <strong>
+                    DON'T ASSUME THAT WHAT YOU SAW IS STILL THERE.
+                </strong>
+            </p>
+
+            <button id="tutorial-got-it">
+                GOT IT
+            </button>
+
+        </div>
+
+    </div>
+
+    <!-- =========================================================
+         MENU MUSIC
+         ========================================================= -->
+
+    <audio
+        id="menu-music"
+        loop
+    >
+        <source
+            src="assets/sounds/music3.ogg"
+            type="audio/ogg"
+        >
+    </audio>
+
+</div>
+
+<!-- =============================================================
+     EXISTING GAME SCRIPTS
+     ============================================================= -->
+
+<script src="js/GameState.js"></script>
+<script src="js/AssetManager.js"></script>
+<script src="js/UIManager.js"></script>
+<script src="js/CameraSystem.js"></script>
+<script src="js/EnemyAI.js"></script>
+<script src="js/InputHandler.js"></script>
+<script src="js/StaticNoise.js"></script>
+<script src="js/ScaryFaceFlicker.js"></script>
+<script src="js/Game.js"></script>
+<script src="js/main.js"></script>
+
+<!-- =============================================================
+     ENHANCED MENU SYSTEM
+     ============================================================= -->
+
+<script>
+
+    /* =========================================================
+       MODAL SYSTEM
+       ========================================================= */
+
+    function openModal(id) {
+
+        const modal = document.getElementById(id);
+
+        if (!modal) return;
+
+        modal.classList.add("active");
+
+        document.body.classList.add("modal-open");
+
+    }
+
+    function closeModal(id) {
+
+        const modal = document.getElementById(id);
+
+        if (!modal) return;
+
+        modal.classList.remove("active");
+
+        document.body.classList.remove("modal-open");
+
+    }
+
+    document.querySelectorAll(".ui-modal").forEach(modal => {
+
+        modal.addEventListener("click", event => {
+
+            if (event.target === modal) {
+
+                modal.classList.remove("active");
+
+            }
+
+        });
+
+    });
+
+    /* =========================================================
+       ESCAPE TO CLOSE
+       ========================================================= */
+
+    document.addEventListener("keydown", event => {
+
+        if (event.key === "Escape") {
+
+            document
+                .querySelectorAll(".ui-modal.active")
+                .forEach(modal => {
+                    modal.classList.remove("active");
+                });
+
+        }
+
+    });
+
+    /* =========================================================
+       TOGGLE BUTTONS
+       ========================================================= */
+
+    document.querySelectorAll(".toggle").forEach(toggle => {
+
+        toggle.addEventListener("click", () => {
+
+            toggle.classList.toggle("active");
+
+        });
+
+    });
+
+    /* =========================================================
+       FULLSCREEN
+       ========================================================= */
+
+    function toggleFullscreen() {
+
+        if (!document.fullscreenElement) {
+
+            document.documentElement.requestFullscreen?.();
+
+        } else {
+
+            document.exitFullscreen?.();
+
+        }
+
+    }
+
+    /* =========================================================
+       PARTICLES
+       ========================================================= */
+
+    function createParticles() {
+
+        const layer = document.getElementById("particle-layer");
+
+        if (!layer) return;
+
+        for (let i = 0; i < 45; i++) {
+
+            const particle = document.createElement("div");
+
+            particle.className = "particle";
+
+            particle.style.left =
+                Math.random() * 100 + "%";
+
+            particle.style.animationDuration =
+                (12 + Math.random() * 20) + "s";
+
+            particle.style.animationDelay =
+                (-Math.random() * 20) + "s";
+
+            particle.style.opacity =
+                .05 + Math.random() * .2;
+
+            const size =
+                1 + Math.random() * 2;
+
+            particle.style.width = size + "px";
+            particle.style.height = size + "px";
+
+            layer.appendChild(particle);
+
+        }
+
+    }
+
+    createParticles();
+
+    /* =========================================================
+       LOADING TEXT
+       ========================================================= */
+
+    const loadingText =
+        document.getElementById("loading-text");
+
+    const bootMessages = [
+        "INITIALIZING HOUSE SYSTEMS",
+        "CHECKING CAMERA NETWORK",
+        "CONNECTING TO SECURITY GRID",
+        "LOADING NIGHT DATABASE",
+        "CALIBRATING AUDIO LURE",
+        "VERIFYING POWER SYSTEM",
+        "OPENING HOUSE RECORDS",
+        "SYSTEM READY"
+    ];
+
+    let bootIndex = 0;
+
+    const bootInterval = setInterval(() => {
+
+        if (!loadingText) return;
+
+        bootIndex++;
+
+        if (bootIndex >= bootMessages.length) {
+
+            clearInterval(bootInterval);
+
+            loadingText.innerHTML =
+                "SYSTEM READY<span id='loading-dots'>...</span>";
+
+            return;
+
+        }
+
+        loadingText.innerHTML =
+            bootMessages[bootIndex] +
+            "<span id='loading-dots'>...</span>";
+
+    }, 360);
+
+    /* =========================================================
+       MENU PARALLAX
+       ========================================================= */
+
+    const menu = document.getElementById("main-menu");
+
+    if (menu) {
+
+        window.addEventListener("mousemove", event => {
+
+            const x =
+                (event.clientX / window.innerWidth - .5);
+
+            const y =
+                (event.clientY / window.innerHeight - .5);
+
+            menu.style.setProperty(
+                "--mouse-x",
+                x
+            );
+
+            menu.style.setProperty(
+                "--mouse-y",
+                y
+            );
+
+        });
+
+    }
+
+    /* =========================================================
+       BUTTON SOUND HOOK
+       ========================================================= */
+
+    const audioContext =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+    let uiAudio;
+
+    function playUISound(type = "hover") {
+
+        /*
+         * Lightweight synthesized UI sounds.
+         * No additional audio assets required.
+         */
+
+        try {
+
+            if (!uiAudio) {
+                uiAudio = new audioContext();
+            }
+
+            const oscillator =
+                uiAudio.createOscillator();
+
+            const gain =
+                uiAudio.createGain();
+
+            oscillator.connect(gain);
+            gain.connect(uiAudio.destination);
+
+            if (type === "hover") {
+
+                oscillator.frequency.value = 550;
+                gain.gain.value = .018;
+
+            } else {
+
+                oscillator.frequency.value = 180;
+                gain.gain.value = .035;
+
+            }
+
+            oscillator.type = "square";
+
+            oscillator.start();
+
+            gain.gain.exponentialRampToValueAtTime(
+                .0001,
+                uiAudio.currentTime + .08
+            );
+
+            oscillator.stop(
+                uiAudio.currentTime + .08
+            );
+
+        } catch (_) {}
+
+    }
+
+    document
+        .querySelectorAll(".menu-button, .challenge-button, .extra-tab")
+        .forEach(button => {
+
+            button.addEventListener(
+                "mouseenter",
+                () => playUISound("hover")
+            );
+
+            button.addEventListener(
+                "click",
+                () => playUISound("click")
+            );
+
+        });
+
+    /* =========================================================
+       NIGHT CARD ANIMATION
+       ========================================================= */
+
+    document
+        .querySelectorAll(".night-card:not(.locked)")
+        .forEach(card => {
+
+            card.addEventListener("click", () => {
+
+                card.animate(
+                    [
+                        {
+                            transform: "scale(1)"
+                        },
+                        {
+                            transform: "scale(.94)"
+                        },
+                        {
+                            transform: "scale(1.04)"
+                        },
+                        {
+                            transform: "scale(1)"
+                        }
+                    ],
+                    {
+                        duration: 500,
+                        easing: "cubic-bezier(.22,1.35,.45,1)"
+                    }
+                );
+
+            });
+
+        });
+
+    /* =========================================================
+       CAMERA STATIC PULSE
+       ========================================================= */
+
+    const cameraPanel =
+        document.getElementById("camera-panel");
+
+    function cameraGlitch() {
+
+        if (!cameraPanel ||
+            cameraPanel.classList.contains("hidden")) {
+            return;
+        }
+
+        cameraPanel.animate(
+            [
+                {
+                    filter: "none",
+                    transform: "translate(0)"
+                },
+                {
+                    filter: "brightness(1.8) contrast(1.8)",
+                    transform: "translate(-2px,1px)"
+                },
+                {
+                    filter: "brightness(.65)",
+                    transform: "translate(2px,-1px)"
+                },
+                {
+                    filter: "none",
+                    transform: "translate(0)"
+                }
+            ],
+            {
+                duration: 160,
+                easing: "steps(3)"
+            }
+        );
+
+    }
+
+    setInterval(() => {
+
+        if (Math.random() < .22) {
+            cameraGlitch();
+        }
+
+    }, 1800);
+
+    /* =========================================================
+       RANDOM ATMOSPHERIC GLITCH
+       ========================================================= */
+
+    setInterval(() => {
+
+        if (Math.random() > .82) {
+
+            const game =
+                document.getElementById("game-screen");
+
+            if (!game) return;
+
+            game.animate(
+                [
+                    {
+                        transform: "translate(0)"
+                    },
+                    {
+                        transform: "translate(-2px,1px)"
+                    },
+                    {
+                        transform: "translate(2px,-1px)"
+                    },
+                    {
+                        transform: "translate(0)"
+                    }
+                ],
+                {
+                    duration: 120,
+                    easing: "steps(3)"
+                }
+            );
+
+        }
+
+    }, 3500);
+
+</script>
 
 </body>
 </html>
-
-
-
-
-
-
-
