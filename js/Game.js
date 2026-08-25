@@ -1733,7 +1733,6 @@
                 this.assets.stopSound(
                     'staticLoop'
                 );
-
                 this.assets.stopSound(
                     'ventCrawling'
                 );
