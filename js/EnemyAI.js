@@ -1,8 +1,18 @@
-// 敌人AI系统 - 基于FNAF机制
 class EnemyAI {
     constructor(game) {
         this.game = game;
-        
+
+        // ==================== PERFORMANCE / LIFECYCLE ====================
+        // Keeps the original AI rules intact while preventing duplicate loops,
+        // stale delayed callbacks, and unnecessary DOM work.
+        this.debug = false;
+        this._runId = 0;
+        this._cameraUpdateQueued = false;
+        this._trackedTimers = new Set();
+        this._domCache = Object.create(null);
+        this._movementCache = Object.create(null);
+        this._trumpMovementCache = Object.create(null);
+
         // ==================== AI配置系统 ====================
         // Epstein AI配置（按夜数）
         this.epsteinConfig = {
@@ -176,6 +186,8 @@ class EnemyAI {
             movementInterval: 12000, // 移动检查间隔
             hasMovedOnce: false, // 是否已经移动过一次
             hasSpawned: false, // 是否已经出场
+            night4AggressiveMode: false,
+            spawnTimer: null,
         };
         
         // 特朗普的状态
@@ -189,6 +201,12 @@ class EnemyAI {
             crawlingTimer: null, // 爬行计时器
             crawlingFrom: null, // 从哪个摄像头开始爬行（cam1或cam2）
             retreatTimer: null, // 撤退计时器
+            spawnTimer: null,
+            crawlingSoundTimer: null,
+            crawlingStopSoundTimer: null,
+            retreatSoundTimer: null,
+            retreatStopSoundTimer: null,
+            night5AggressiveMode: false,
         };
         
         // 霍金的状态（第3关开始）
@@ -312,6 +330,9 @@ class EnemyAI {
         };
         
         // 每个摄像头的角色位置配置（CSS定位）
+        // 预计算移动候选，避免每次AI tick都创建临时数组。
+        this.buildMovementCaches();
+        
         this.characterPositions = {
             'cam11': { left: '57.1%', bottom: '0%', width: '29%', transform: 'translateX(-50%) rotate(0deg)' },
             'cam10': { left: '73.8%', bottom: '1.6%', width: '89.2%', transform: 'translateX(-50%) rotate(0deg)' },
@@ -450,42 +471,119 @@ class EnemyAI {
         };
     }
 
+    // ==================== PERFORMANCE HELPERS ====================
+
+    // Lightweight logging switch. Set this.debug = true while debugging.
+    debugLog(...args) {
+        if (this.debug) console.log(...args);
+    }
+
+    // Track delayed callbacks so stop/reset can invalidate them all at once.
+    setTrackedTimeout(callback, delay) {
+        const runId = this._runId;
+        const timer = setTimeout(() => {
+            this._trackedTimers.delete(timer);
+            if (runId !== this._runId) return;
+            callback();
+        }, Math.max(0, delay));
+        this._trackedTimers.add(timer);
+        return timer;
+    }
+
+    clearAllTrackedTimers() {
+        for (const timer of this._trackedTimers) clearTimeout(timer);
+        this._trackedTimers.clear();
+    }
+
+    buildMovementCaches() {
+        const build = (depthMap) => {
+            const locations = Object.keys(depthMap).filter(loc => loc !== 'office');
+            const cache = Object.create(null);
+
+            for (const currentLoc of locations) {
+                const currentDepth = depthMap[currentLoc];
+                const adjacent = this.adjacentRooms[currentLoc] || [];
+
+                cache[currentLoc] = {
+                    forward: locations.filter(loc => depthMap[loc] === currentDepth - 1),
+                    lateral: adjacent.filter(loc => depthMap[loc] === currentDepth),
+                    backward: adjacent.filter(loc => depthMap[loc] === currentDepth + 1)
+                };
+            }
+
+            return cache;
+        };
+
+        this._movementCache = build(this.locationDepth);
+        this._trumpMovementCache = build(this.trumpLocationDepth);
+    }
+
+    getCachedElement(id) {
+        const cached = this._domCache[id];
+        if (cached && cached.isConnected) return cached;
+
+        const element = document.getElementById(id);
+        if (element) this._domCache[id] = element;
+        return element || null;
+    }
+
+    queueCameraDisplayUpdate() {
+        if (this._cameraUpdateQueued) return;
+        this._cameraUpdateQueued = true;
+
+        const runId = this._runId;
+        const flush = () => {
+            this._cameraUpdateQueued = false;
+            if (runId !== this._runId) return;
+            this.updateCameraDisplay();
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(flush);
+        } else {
+            setTimeout(flush, 0);
+        }
+    }
+
     // 开始AI循环
     start() {
-        console.log(`🎮 EnemyAI.start() called for Night ${this.game.state.currentNight}`);
-        
-        // 根据夜数加载配置并设置AI等级
+        const night = this.game.state.currentNight;
+
+        // Invalidate callbacks from any previous run.
+        this._runId++;
+        this.clearAllTrackedTimers();
+
+        this.debugLog(`🎮 EnemyAI.start() called for Night ${night}`);
+
         this.loadAIConfig();
-        
-        console.log(`Night ${this.game.state.currentNight} - Epstein AI Config:`, this.currentEpsteinConfig);
-        console.log(`Epstein will spawn in ${this.currentEpsteinConfig.spawnDelay / 1000} seconds...`);
-        
-        // 根据配置延迟后EP出场
-        const spawnTimer = setTimeout(() => {
-            console.log(`⏰ Spawn timer triggered after ${this.currentEpsteinConfig.spawnDelay}ms`);
+
+        this.debugLog(`Night ${night} - Epstein AI Config:`, this.currentEpsteinConfig);
+        this.debugLog(`Epstein will spawn in ${this.currentEpsteinConfig.spawnDelay / 1000} seconds...`);
+
+        this.epstein.spawnTimer = this.setTrackedTimeout(() => {
+            this.debugLog(`⏰ Spawn timer triggered after ${this.currentEpsteinConfig.spawnDelay}ms`);
             this.spawnEpstein();
+            this.epstein.spawnTimer = null;
         }, this.currentEpsteinConfig.spawnDelay);
-        
-        console.log(`⏰ Spawn timer created:`, spawnTimer);
-        
+
         // 第2-5晚，特朗普出场（Night 6 没有 Trump）
-        if (this.game.state.currentNight >= 2 && this.game.state.currentNight <= 5 && this.currentTrumpConfig) {
-            console.log(`Night ${this.game.state.currentNight} - Trump AI Config:`, this.currentTrumpConfig);
-            console.log(`Trump will spawn in ${this.currentTrumpConfig.spawnDelay / 1000} seconds...`);
-            
-            // 根据配置延迟后Trump出场
-            setTimeout(() => {
+        if (night >= 2 && night <= 5 && this.currentTrumpConfig) {
+            this.debugLog(`Night ${night} - Trump AI Config:`, this.currentTrumpConfig);
+            this.debugLog(`Trump will spawn in ${this.currentTrumpConfig.spawnDelay / 1000} seconds...`);
+
+            this.trump.spawnTimer = this.setTrackedTimeout(() => {
                 this.spawnTrump();
+                this.trump.spawnTimer = null;
             }, this.currentTrumpConfig.spawnDelay);
         }
-        
+
         // 第3晚及以后，霍金激活（但 Night 6 不激活）
-        if (this.game.state.currentNight >= 3 && this.game.state.currentNight <= 5) {
-            console.log('Hawking activated at cam6!');
+        if (night >= 3 && night <= 5) {
+            this.debugLog('Hawking activated at cam6!');
             this.startHawking();
         }
     }
-    
+
     // 加载AI配置
     loadAIConfig() {
         const night = this.game.state.currentNight;
@@ -504,12 +602,12 @@ class EnemyAI {
             this.currentTrumpConfig = null; // Night 6 没有 Trump
         }
         
-        console.log(`AI Config loaded for Night ${night}`);
-        console.log(`- Epstein: Level ${this.epstein.aiLevel}, Interval ${this.epstein.movementInterval}ms`);
+        this.debugLog(`AI Config loaded for Night ${night}`);
+        this.debugLog(`- Epstein: Level ${this.epstein.aiLevel}, Interval ${this.epstein.movementInterval}ms`);
         if (this.currentTrumpConfig) {
-            console.log(`- Trump: Level ${this.trump.aiLevel}, Interval ${this.trump.movementInterval}ms`);
+            this.debugLog(`- Trump: Level ${this.trump.aiLevel}, Interval ${this.trump.movementInterval}ms`);
         } else {
-            console.log(`- Trump: Not active this night`);
+            this.debugLog(`- Trump: Not active this night`);
         }
     }
     
@@ -529,7 +627,7 @@ class EnemyAI {
         if (this.epstein.hasSpawned) return;
         
         this.epstein.hasSpawned = true;
-        console.log('✅ Epstein has spawned!');
+        this.debugLog('✅ Epstein has spawned!');
         
         // 第一关触发摄像头故障，第二关及以后不触发
         if (this.game.state.currentNight === 1) {
@@ -545,7 +643,7 @@ class EnemyAI {
         if (this.trump.hasSpawned) return;
         
         this.trump.hasSpawned = true;
-        console.log('Trump has spawned at cam10!');
+        this.debugLog('Trump has spawned at cam10!');
         
         // 立即更新摄像头显示（如果摄像头打开）
         if (this.game.state.cameraOpen) {
@@ -558,13 +656,25 @@ class EnemyAI {
 
     // 停止AI
     stop() {
+        this._runId++;
+        this.clearAllTrackedTimers();
+
         if (this.epstein.movementTimer) {
-            clearTimeout(this.epstein.movementTimer);  // 改为 clearTimeout
+            clearTimeout(this.epstein.movementTimer);
             this.epstein.movementTimer = null;
         }
+        if (this.epstein.spawnTimer) {
+            clearTimeout(this.epstein.spawnTimer);
+            this.epstein.spawnTimer = null;
+        }
+
         if (this.trump.movementTimer) {
-            clearTimeout(this.trump.movementTimer);    // 改为 clearTimeout
+            clearTimeout(this.trump.movementTimer);
             this.trump.movementTimer = null;
+        }
+        if (this.trump.spawnTimer) {
+            clearTimeout(this.trump.spawnTimer);
+            this.trump.spawnTimer = null;
         }
         if (this.trump.crawlingTimer) {
             clearTimeout(this.trump.crawlingTimer);
@@ -574,6 +684,23 @@ class EnemyAI {
             clearTimeout(this.trump.retreatTimer);
             this.trump.retreatTimer = null;
         }
+        if (this.trump.crawlingSoundTimer) {
+            clearTimeout(this.trump.crawlingSoundTimer);
+            this.trump.crawlingSoundTimer = null;
+        }
+        if (this.trump.crawlingStopSoundTimer) {
+            clearTimeout(this.trump.crawlingStopSoundTimer);
+            this.trump.crawlingStopSoundTimer = null;
+        }
+        if (this.trump.retreatSoundTimer) {
+            clearTimeout(this.trump.retreatSoundTimer);
+            this.trump.retreatSoundTimer = null;
+        }
+        if (this.trump.retreatStopSoundTimer) {
+            clearTimeout(this.trump.retreatStopSoundTimer);
+            this.trump.retreatStopSoundTimer = null;
+        }
+
         if (this.hawking.timer) {
             clearTimeout(this.hawking.timer);
             this.hawking.timer = null;
@@ -586,6 +713,7 @@ class EnemyAI {
             clearTimeout(this.hawking.attackTimer);
             this.hawking.attackTimer = null;
         }
+
         // 停止爬行音效
         this.game.assets.stopSound('ventCrawling');
         // 隐藏霍金警告
@@ -594,12 +722,22 @@ class EnemyAI {
 
     // 开始移动检查循环
     startMovementLoop() {
-        // 使用 setTimeout 而不是 setInterval，以支持动态间隔
+        if (!this.epstein.hasSpawned || this.epstein.currentLocation === 'office') return;
+
+        if (this.epstein.movementTimer) {
+            clearTimeout(this.epstein.movementTimer);
+            this.epstein.movementTimer = null;
+        }
+
+        const runId = this._runId;
+
         const scheduleNextCheck = () => {
+            if (runId !== this._runId || !this.epstein.hasSpawned) return;
+            if (this.epstein.currentLocation === 'office') return;
+
             // Night 4特殊机制：4AM后EP变得更激进
             let currentConfig = this.currentEpsteinConfig;
             if (this.game.state.currentNight === 4 && this.game.state.currentTime >= 4) {
-                // 4AM后使用更激进的配置
                 currentConfig = {
                     ...this.currentEpsteinConfig,
                     movementInterval: [8000, 10000],
@@ -610,32 +748,40 @@ class EnemyAI {
                     }
                 };
             }
-            
-            // 从配置区间中随机选择下一次检查的间隔
+
             const nextInterval = this.getRandomInterval(currentConfig.movementInterval);
-            
+
             this.epstein.movementTimer = setTimeout(() => {
+                if (runId !== this._runId || !this.epstein.hasSpawned) return;
                 this.checkMovement();
-                // 递归调度下一次检查
                 scheduleNextCheck();
             }, nextInterval);
         };
-        
-        // 开始第一次调度
+
         scheduleNextCheck();
     }
-    
+
     // 开始Trump的移动检查循环
     startTrumpMovementLoop() {
-        // 使用 setTimeout 而不是 setInterval，以支持动态间隔
+        if (!this.trump.hasSpawned || this.trump.isCrawling || this.trump.currentLocation === 'office') return;
+
+        if (this.trump.movementTimer) {
+            clearTimeout(this.trump.movementTimer);
+            this.trump.movementTimer = null;
+        }
+
+        const runId = this._runId;
+
         const scheduleNextCheck = () => {
+            if (runId !== this._runId || !this.trump.hasSpawned) return;
+            if (this.trump.isCrawling || this.trump.currentLocation === 'office') return;
+
             // Night 5特殊机制：4AM后Trump变得更激进
             let currentConfig = this.currentTrumpConfig;
             if (this.game.state.currentNight === 5 && this.game.state.currentTime >= 4) {
-                // 4AM后使用更激进的配置
                 currentConfig = {
                     ...this.currentTrumpConfig,
-                    movementInterval: [6000, 7000], // 6-7秒间隔
+                    movementInterval: [6000, 7000],
                     movementProbability: {
                         forward: 1.0,
                         lateral: 0.0,
@@ -643,18 +789,16 @@ class EnemyAI {
                     }
                 };
             }
-            
-            // 从配置区间中随机选择下一次检查的间隔
+
             const nextInterval = this.getRandomInterval(currentConfig.movementInterval);
-            
+
             this.trump.movementTimer = setTimeout(() => {
+                if (runId !== this._runId || !this.trump.hasSpawned) return;
                 this.checkTrumpMovement();
-                // 递归调度下一次检查
                 scheduleNextCheck();
             }, nextInterval);
         };
-        
-        // 开始第一次调度
+
         scheduleNextCheck();
     }
 
@@ -716,30 +860,24 @@ class EnemyAI {
             };
             // 只在第一次触发时显示日志
             if (!this.epstein.night4AggressiveMode) {
-                console.log('⚡ Night 4: 4AM reached! EP is now in aggressive mode (forward only)');
+                this.debugLog('⚡ Night 4: 4AM reached! EP is now in aggressive mode (forward only)');
                 this.epstein.night4AggressiveMode = true;
             }
         }
         
-        // 获取所有位置（不限于邻居）
-        const allLocations = Object.keys(this.locationDepth).filter(loc => 
-            loc !== 'office' && loc !== currentLoc
-        );
-        
-        // 获取邻近房间
-        const adjacentLocs = this.adjacentRooms[currentLoc] || [];
-        
-        // 分类所有可能的移动位置
-        // 前进：所有步长减1的位置（不限于邻近）
-        const forwardLocations = allLocations.filter(loc => this.locationDepth[loc] === currentDepth - 1);
-        // 平移：只能移动到邻近房间且步长相同的位置
-        const lateralLocations = adjacentLocs.filter(loc => this.locationDepth[loc] === currentDepth);
-        // 后退：只能移动到邻近房间且步长加1的位置
-        const backwardLocations = adjacentLocs.filter(loc => this.locationDepth[loc] === currentDepth + 1);
+        // 候选路径已在构造时预计算，避免每次移动重复扫描所有摄像头。
+        const cachedMoves = this._movementCache[currentLoc] || {
+            forward: [],
+            lateral: [],
+            backward: []
+        };
+        const forwardLocations = cachedMoves.forward;
+        const lateralLocations = cachedMoves.lateral;
+        const backwardLocations = cachedMoves.backward;
         
         // 如果当前步长是1且没有前进位置，尝试移动到office
         if (forwardLocations.length === 0 && currentDepth === 1) {
-            console.log(`Epstein moved: ${currentLoc} -> office`);
+            this.debugLog(`Epstein moved: ${currentLoc} -> office`);
             this.epstein.currentLocation = 'office';
             this.triggerJumpscare('epstein');
             return;
@@ -751,7 +889,7 @@ class EnemyAI {
         
         // 如果总概率为0或没有任何可移动位置，不移动
         if (totalProb === 0 || (forwardLocations.length === 0 && lateralLocations.length === 0 && backwardLocations.length === 0)) {
-            console.log(`Epstein has no valid path from ${currentLoc}`);
+            this.debugLog(`Epstein has no valid path from ${currentLoc}`);
             return;
         }
         
@@ -791,7 +929,7 @@ class EnemyAI {
                 selectedLocations = backwardLocations;
                 movementType = 'backward (fallback)';
             } else {
-                console.log(`Epstein has no valid path from ${currentLoc}`);
+                this.debugLog(`Epstein has no valid path from ${currentLoc}`);
                 return;
             }
         }
@@ -799,7 +937,7 @@ class EnemyAI {
         // 从选中的方向中随机选择一个位置
         const nextLocation = selectedLocations[Math.floor(Math.random() * selectedLocations.length)];
         
-        console.log(`Epstein moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.locationDepth[nextLocation]})`);
+        this.debugLog(`Epstein moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.locationDepth[nextLocation]})`);
         
         this.epstein.currentLocation = nextLocation;
         
@@ -818,7 +956,7 @@ class EnemyAI {
         }
         
         // 更新摄像头显示
-        this.updateCameraDisplay();
+        this.queueCameraDisplayUpdate();
     }
     
     // Trump移动到下一个位置（支持前进、平移、后退）
@@ -844,14 +982,14 @@ class EnemyAI {
             };
             // 只在第一次触发时显示日志
             if (!this.trump.night5AggressiveMode) {
-                console.log('⚡ Night 5: 4AM reached! Trump is now in aggressive mode (faster + more crawling)');
+                this.debugLog('⚡ Night 5: 4AM reached! Trump is now in aggressive mode (faster + more crawling)');
                 this.trump.night5AggressiveMode = true;
             }
         }
         
         // 如果正在爬行，不能移动
         if (this.trump.isCrawling) {
-            console.log('Trump is crawling, cannot move');
+            this.debugLog('Trump is crawling, cannot move');
             return;
         }
         
@@ -859,7 +997,7 @@ class EnemyAI {
         if (currentLoc === 'cam1') {
             const shouldCrawl = Math.random() < config.ventCrawling.cam1Probability;
             if (shouldCrawl) {
-                console.log(`Trump starting to crawl from ${currentLoc} to office (${config.ventCrawling.cam1Probability * 100}% chance)`);
+                this.debugLog(`Trump starting to crawl from ${currentLoc} to office (${config.ventCrawling.cam1Probability * 100}% chance)`);
                 this.startTrumpCrawling(currentLoc);
                 return;
             }
@@ -869,34 +1007,28 @@ class EnemyAI {
         if (currentLoc === 'cam2') {
             const shouldCrawl = Math.random() < config.ventCrawling.cam2Probability;
             if (shouldCrawl) {
-                console.log(`Trump decided to crawl from ${currentLoc} to office (${config.ventCrawling.cam2Probability * 100}% chance)`);
+                this.debugLog(`Trump decided to crawl from ${currentLoc} to office (${config.ventCrawling.cam2Probability * 100}% chance)`);
                 this.startTrumpCrawling(currentLoc);
                 return;
             } else {
-                console.log(`Trump decided to continue moving from ${currentLoc} (${(1 - config.ventCrawling.cam2Probability) * 100}% chance)`);
+                this.debugLog(`Trump decided to continue moving from ${currentLoc} (${(1 - config.ventCrawling.cam2Probability) * 100}% chance)`);
                 // 继续执行正常移动逻辑
             }
         }
         
-        // 获取Trump可以去的位置
-        const allLocations = Object.keys(this.trumpLocationDepth).filter(loc => 
-            loc !== 'office' && loc !== currentLoc
-        );
-        
-        // 获取邻近房间
-        const adjacentLocs = this.adjacentRooms[currentLoc] || [];
-        
-        // 分类所有可能的移动位置
-        // 前进：所有步长减1的位置（不限于邻近）
-        const forwardLocations = allLocations.filter(loc => this.trumpLocationDepth[loc] === currentDepth - 1);
-        // 平移：只能移动到邻近房间且步长相同的位置
-        const lateralLocations = adjacentLocs.filter(loc => this.trumpLocationDepth[loc] === currentDepth);
-        // 后退：只能移动到邻近房间且步长加1的位置
-        const backwardLocations = adjacentLocs.filter(loc => this.trumpLocationDepth[loc] === currentDepth + 1);
+        // 候选路径已在构造时预计算。
+        const cachedMoves = this._trumpMovementCache[currentLoc] || {
+            forward: [],
+            lateral: [],
+            backward: []
+        };
+        const forwardLocations = cachedMoves.forward;
+        const lateralLocations = cachedMoves.lateral;
+        const backwardLocations = cachedMoves.backward;
         
         // 如果没有任何可移动位置，不移动
         if (forwardLocations.length === 0 && lateralLocations.length === 0 && backwardLocations.length === 0) {
-            console.log(`Trump has no valid path from ${currentLoc}`);
+            this.debugLog(`Trump has no valid path from ${currentLoc}`);
             return;
         }
         
@@ -906,7 +1038,7 @@ class EnemyAI {
         
         // 如果总概率为0，不移动
         if (totalProb === 0) {
-            console.log(`Trump movement probability is 0`);
+            this.debugLog(`Trump movement probability is 0`);
             return;
         }
         
@@ -943,7 +1075,7 @@ class EnemyAI {
                 selectedLocations = backwardLocations;
                 movementType = 'backward (fallback)';
             } else {
-                console.log(`Trump has no valid path from ${currentLoc}`);
+                this.debugLog(`Trump has no valid path from ${currentLoc}`);
                 return;
             }
         }
@@ -951,7 +1083,7 @@ class EnemyAI {
         // 从选中的方向中随机选择一个位置
         const nextLocation = selectedLocations[Math.floor(Math.random() * selectedLocations.length)];
         
-        console.log(`Trump moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.trumpLocationDepth[nextLocation]})`);
+        this.debugLog(`Trump moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.trumpLocationDepth[nextLocation]})`);
         
         this.trump.currentLocation = nextLocation;
         
@@ -964,7 +1096,7 @@ class EnemyAI {
         }
         
         // 更新摄像头显示
-        this.updateCameraDisplay();
+        this.queueCameraDisplayUpdate();
     }
     
     // Trump开始爬行进入办公室
@@ -975,32 +1107,35 @@ class EnemyAI {
         this.trump.crawlingFrom = fromLocation; // 记录从哪里开始爬行
         this.trump.currentLocation = 'crawling'; // 标记为爬行状态
         
-        console.log(`Trump is crawling from ${fromLocation}...`);
-        console.log(`Crawling config: soundDelay=${config.soundDelay}ms, soundDuration=${config.soundDuration}ms, totalDuration=${config.totalDuration}ms`);
+        this.debugLog(`Trump is crawling from ${fromLocation}...`);
+        this.debugLog(`Crawling config: soundDelay=${config.soundDelay}ms, soundDuration=${config.soundDuration}ms, totalDuration=${config.totalDuration}ms`);
         
         // 更新摄像头显示（Trump消失）
-        this.updateCameraDisplay();
+        this.queueCameraDisplayUpdate();
         
         // 根据配置延迟后开始播放爬行音效
-        setTimeout(() => {
+        this.trump.crawlingSoundTimer = this.setTrackedTimeout(() => {
             // 检查Trump是否还在爬行（可能已经被阻止）
             if (this.trump.isCrawling && this.trump.currentLocation === 'crawling') {
-                console.log('Playing crawling sound...');
+                this.debugLog('Playing crawling sound...');
                 this.game.assets.playSound('ventCrawling', true, 0.8);
-                
+
                 // 根据配置持续时长后停止爬行音效
-                setTimeout(() => {
+                this.trump.crawlingStopSoundTimer = this.setTrackedTimeout(() => {
                     if (this.trump.isCrawling && this.trump.currentLocation === 'crawling') {
-                        console.log('Stopping crawling sound...');
+                        this.debugLog('Stopping crawling sound...');
                         this.game.assets.stopSound('ventCrawling');
                     }
+                    this.trump.crawlingStopSoundTimer = null;
                 }, config.soundDuration);
+
+                this.trump.crawlingSoundTimer = null;
             }
         }, config.soundDelay);
-        
+
         // 根据配置总时长后到达办公室并触发跳杀
-        this.trump.crawlingTimer = setTimeout(() => {
-            console.log('Trump reached the office!');
+        this.trump.crawlingTimer = this.setTrackedTimeout(() => {
+            this.debugLog('Trump reached the office!');
             this.trump.currentLocation = 'office';
             this.trump.isCrawling = false;
             this.trump.crawlingFrom = null;
@@ -1021,7 +1156,7 @@ class EnemyAI {
         
         const config = this.currentTrumpConfig.ventCrawling;
         
-        console.log('Trump crawling blocked by closed vents!');
+        this.debugLog('Trump crawling blocked by closed vents!');
         
         // 清除爬行计时器
         if (this.trump.crawlingTimer) {
@@ -1053,24 +1188,27 @@ class EnemyAI {
             retreatLocation = epDepth3Locations[Math.floor(Math.random() * epDepth3Locations.length)];
         }
         
-        console.log(`Trump will retreat to ${retreatLocation} (depth 3)`);
+        this.debugLog(`Trump will retreat to ${retreatLocation} (depth 3)`);
         
         // 立即移动到撤退位置
         this.trump.currentLocation = retreatLocation;
         this.trump.crawlingFrom = null;
         
         // 更新摄像头显示
-        this.updateCameraDisplay();
+        this.queueCameraDisplayUpdate();
         
         // 根据配置延迟后播放撤退音效
-        setTimeout(() => {
-            console.log('Playing retreat crawling sound...');
+        this.trump.retreatSoundTimer = this.setTrackedTimeout(() => {
+            this.debugLog('Playing retreat crawling sound...');
             this.game.assets.playSound('ventCrawling', false, 0.8);
-            
+
             // 根据配置持续时长后停止音效
-            setTimeout(() => {
+            this.trump.retreatStopSoundTimer = this.setTrackedTimeout(() => {
                 this.game.assets.stopSound('ventCrawling');
+                this.trump.retreatStopSoundTimer = null;
             }, config.retreatSoundDuration);
+
+            this.trump.retreatSoundTimer = null;
         }, config.retreatDelay);
         
         return true;
@@ -1099,7 +1237,7 @@ class EnemyAI {
             if (resistance > 0) {
                 const failChance = Math.random();
                 if (failChance < resistance) {
-                    console.log(`Epstein resisted the sound lure! (${resistance * 100}% chance on Night ${this.game.state.currentNight})`);
+                    this.debugLog(`Epstein resisted the sound lure! (${resistance * 100}% chance on Night ${this.game.state.currentNight})`);
                     // 吸引失败，但仍然播放音效让玩家以为成功了
                     this.game.assets.playSound('blip', false, 0.5);
                     return false; // 返回false表示没有真正吸引到
@@ -1109,7 +1247,7 @@ class EnemyAI {
             // 吸引成功，EP移动到sound位置（可以前进或后退）
             const currentDepth = this.locationDepth[epCurrentLoc];
             const soundDepth = this.locationDepth[soundLocation];
-            console.log(`Epstein attracted by sound: ${epCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
+            this.debugLog(`Epstein attracted by sound: ${epCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
             
             this.epstein.currentLocation = soundLocation;
             
@@ -1123,7 +1261,7 @@ class EnemyAI {
             
             epAttracted = true;
         } else {
-            console.log(`Sound at ${soundLocation} is not adjacent to Epstein at ${epCurrentLoc}`);
+            this.debugLog(`Sound at ${soundLocation} is not adjacent to Epstein at ${epCurrentLoc}`);
         }
         
         // 尝试吸引Trump（如果已出场且不在爬行状态）
@@ -1134,7 +1272,7 @@ class EnemyAI {
             // 吸引成功，Trump移动到sound位置（可以前进或后退）
             const currentDepth = this.trumpLocationDepth[trumpCurrentLoc];
             const soundDepth = this.trumpLocationDepth[soundLocation];
-            console.log(`Trump attracted by sound: ${trumpCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
+            this.debugLog(`Trump attracted by sound: ${trumpCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
             
             this.trump.currentLocation = soundLocation;
             
@@ -1150,7 +1288,7 @@ class EnemyAI {
             
             trumpAttracted = true;
         } else if (this.trump.hasSpawned && !this.trump.isCrawling) {
-            console.log(`Sound at ${soundLocation} is not adjacent to Trump at ${trumpCurrentLoc}`);
+            this.debugLog(`Sound at ${soundLocation} is not adjacent to Trump at ${trumpCurrentLoc}`);
         }
         
         // 注意：不在这里更新显示，由CameraSystem的动画处理
@@ -1160,7 +1298,7 @@ class EnemyAI {
     
     // 触发摄像头故障
     triggerCameraFailure() {
-        console.log('Camera system failure!');
+        this.debugLog('Camera system failure!');
         this.game.state.cameraFailed = true;
         
         // 播放静态噪音
@@ -1183,7 +1321,7 @@ class EnemyAI {
 
     // 触发跳杀
     triggerJumpscare(enemy = 'epstein') {
-        console.log(`JUMPSCARE by ${enemy}!`);
+        this.debugLog(`JUMPSCARE by ${enemy}!`);
         this.stop();
         
         // 霍金的特殊跳杀动画
@@ -1234,11 +1372,13 @@ class EnemyAI {
         jumpscareImg.style.position = 'absolute';
         jumpscareImg.style.top = '50%';
         jumpscareImg.style.left = '50%';
-        jumpscareImg.style.transform = 'translate(-50%, -50%)';
-        jumpscareImg.style.width = '25%'; // 初始大小25%
+        jumpscareImg.style.transform = 'translate(-50%, -50%) scale(0.25)';
+        jumpscareImg.style.transformOrigin = 'center center';
+        jumpscareImg.style.width = '100%'; // Keep dimensions stable; animate transform only
         jumpscareImg.style.height = 'auto';
         jumpscareImg.style.zIndex = '2';
-        jumpscareImg.style.transition = 'none';
+        jumpscareImg.style.transition = 'transform 150ms linear';
+        jumpscareImg.style.willChange = 'transform, opacity';
         
         jumpscareContainer.appendChild(officeBackground);
         jumpscareContainer.appendChild(jumpscareImg);
@@ -1309,6 +1449,7 @@ class EnemyAI {
         this.epstein.hasMovedOnce = false;
         this.epstein.hasSpawned = false;
         this.epstein.night4AggressiveMode = false; // 重置Night 4激进模式标志
+        this.epstein.spawnTimer = null;
         if (this.epstein.timer) {
             clearTimeout(this.epstein.timer);
             this.epstein.timer = null;
@@ -1321,6 +1462,11 @@ class EnemyAI {
         this.trump.isCrawling = false;
         this.trump.crawlingFrom = null;
         this.trump.night5AggressiveMode = false; // 重置Night 5激进模式标志
+        this.trump.spawnTimer = null;
+        this.trump.crawlingSoundTimer = null;
+        this.trump.crawlingStopSoundTimer = null;
+        this.trump.retreatSoundTimer = null;
+        this.trump.retreatStopSoundTimer = null;
         if (this.trump.timer) {
             clearTimeout(this.trump.timer);
             this.trump.timer = null;
@@ -1357,14 +1503,23 @@ class EnemyAI {
             characterOverlay.innerHTML = '';
         }
         
-        console.log('EnemyAI reset complete');
+        this.debugLog('EnemyAI reset complete');
     }
     
     // 启动霍金机制
     startHawking() {
+        if (this.hawking.timer) {
+            clearTimeout(this.hawking.timer);
+            this.hawking.timer = null;
+        }
+        if (this.hawking.warningTimer) {
+            clearTimeout(this.hawking.warningTimer);
+            this.hawking.warningTimer = null;
+        }
+
         this.hawking.active = true;
         this.hawking.warningLevel = 0;
-        console.log('Hawking started at cam6');
+        this.debugLog('Hawking started at cam6');
         
         // 20秒后开始黄色警告
         this.hawking.timer = setTimeout(() => {
@@ -1376,7 +1531,7 @@ class EnemyAI {
     showHawkingWarning(level) {
         if (!this.hawking.active) return;
         
-        console.log(`Hawking warning: ${level}`);
+        this.debugLog(`Hawking warning: ${level}`);
         
         if (level === 'yellow') {
             this.hawking.warningLevel = 1;
@@ -1399,7 +1554,7 @@ class EnemyAI {
     
     // 更新霍金警告显示
     updateHawkingWarningDisplay() {
-        let warningIcon = document.getElementById('hawking-warning-icon');
+        let warningIcon = this.getCachedElement('hawking-warning-icon');
         
         if (!warningIcon) {
             warningIcon = document.createElement('img');
@@ -1464,15 +1619,16 @@ class EnemyAI {
     
     // 隐藏霍金警告
     hideHawkingWarning() {
-        const warningIcon = document.getElementById('hawking-warning-icon');
+        const warningIcon = this.getCachedElement('hawking-warning-icon');
         if (warningIcon) {
             warningIcon.remove();
         }
+        delete this._domCache['hawking-warning-icon'];
     }
     
     // 霍金破坏摄像头
     hawkingBreakCamera() {
-        console.log('Hawking broke the camera!');
+        this.debugLog('Hawking broke the camera!');
         
         // 隐藏警告
         this.hideHawkingWarning();
@@ -1482,7 +1638,7 @@ class EnemyAI {
         
         // 霍金从cam6消失
         this.hawking.active = false;
-        this.updateCameraDisplay();
+        this.queueCameraDisplayUpdate();
         
         // 4秒后跳杀
         this.hawking.attackTimer = setTimeout(() => {
@@ -1492,7 +1648,7 @@ class EnemyAI {
     
     // 霍金的导弹跳杀动画
     triggerHawkingMissileJumpscare() {
-        console.log('Hawking missile jumpscare!');
+        this.debugLog('Hawking missile jumpscare!');
         
         // 停止所有音效
         this.game.assets.stopSound('vents');
@@ -1536,12 +1692,14 @@ class EnemyAI {
         const missileImg = document.createElement('img');
         missileImg.src = '/FNAE-HTML5-1.1.5/assets/images/front.png';
         missileImg.style.position = 'absolute';
-        missileImg.style.left = '25%';
-        missileImg.style.top = '40%';
-        missileImg.style.width = '5%';
+        missileImg.style.left = '50%';
+        missileImg.style.top = '50%';
+        missileImg.style.width = '80%';
+        missileImg.style.transform = 'translate(-50%, -50%) scale(0.0625)';
         missileImg.style.height = 'auto';
         missileImg.style.zIndex = '3';
-        missileImg.style.transition = 'all 1s ease-out';
+        missileImg.style.transition = 'transform 1s ease-out';
+        missileImg.style.willChange = 'transform';
         
         // 创建爆炸帧图容器（初始隐藏）
         const explosionImg = document.createElement('div');
@@ -1568,15 +1726,12 @@ class EnemyAI {
         this.game.assets.playSound('hawkingJumpscare', false, 1.0);
         
         // 导弹飞向玩家（放大并移动到中心）
-        setTimeout(() => {
-            missileImg.style.left = '50%';
-            missileImg.style.top = '50%';
-            missileImg.style.transform = 'translate(-50%, -50%)';
-            missileImg.style.width = '80%';
+        this.setTrackedTimeout(() => {
+            missileImg.style.transform = 'translate(-50%, -50%) scale(1)';
         }, 50);
         
         // 1秒后导弹到达，开始爆炸动画
-        setTimeout(() => {
+        this.setTrackedTimeout(() => {
             missileImg.style.display = 'none';
             explosionImg.style.display = 'block';
             
@@ -1588,37 +1743,49 @@ class EnemyAI {
             // 第一列的4帧对应的Y位置（手动调整后的精确位置）
             const yPositions = [8.00, 36.50, 65.00, 93.00];
             
-            const animateExplosion = setInterval(() => {
-                // X位置固定在0%（第一列），Y位置使用预设数组
-                explosionImg.style.backgroundPosition = `0% ${yPositions[frame]}%`;
-                
-                frame++;
-                if (frame > totalFrames) {
-                    clearInterval(animateExplosion);
-                    
-                    // 爆炸动画结束后淡出
-                    setTimeout(() => {
-                        jumpscareContainer.style.transition = 'opacity 0.5s';
-                        jumpscareContainer.style.opacity = '0';
-                        
-                        setTimeout(() => {
-                            document.body.removeChild(jumpscareContainer);
-                            this.game.gameOver('GAME OVER');
-                        }, 500);
-                    }, 200);
+            let lastFrameTime = 0;
+            let rafId = null;
+
+            const animateExplosion = (timestamp) => {
+                if (!lastFrameTime || timestamp - lastFrameTime >= frameInterval) {
+                    lastFrameTime = timestamp;
+                    explosionImg.style.backgroundPosition = `0% ${yPositions[frame]}%`;
+                    frame++;
+
+                    if (frame > totalFrames) {
+                        rafId = null;
+
+                        // 爆炸动画结束后淡出
+                        this.setTrackedTimeout(() => {
+                            jumpscareContainer.style.transition = 'opacity 0.5s';
+                            jumpscareContainer.style.opacity = '0';
+
+                            this.setTrackedTimeout(() => {
+                                if (jumpscareContainer.isConnected) {
+                                    jumpscareContainer.remove();
+                                }
+                                this.game.gameOver('GAME OVER');
+                            }, 500);
+                        }, 200);
+                        return;
+                    }
                 }
-            }, frameInterval);
+
+                rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(animateExplosion) : setTimeout(() => animateExplosion(performance.now()), frameInterval);
+            };
+
+            rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(animateExplosion) : setTimeout(() => animateExplosion(performance.now()), frameInterval);
         }, 1000);
     }
     
     // 电击霍金（玩家点击按钮）
     shockHawking() {
         if (!this.hawking.active) {
-            console.log('Hawking is not active');
+            this.debugLog('Hawking is not active');
             return false;
         }
         
-        console.log('Hawking shocked! Resetting timer...');
+        this.debugLog('Hawking shocked! Resetting timer...');
         
         // 清除所有计时器
         if (this.hawking.timer) {
