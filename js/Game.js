@@ -1,1818 +1,1130 @@
-class EnemyAI {
-    constructor(game) {
-        this.game = game;
+// Main game class
+class Game {
+    constructor() {
+        this.state = new GameState();
+        this.assets = new AssetManager();
+        this.ui = new UIManager(this);
+        this.camera = new CameraSystem(this);
+        this.enemyAI = new EnemyAI(this);
+        this.input = new InputHandler(this);
+        
+        // Initialize CameraSystem's EP config (from EnemyAI)
+        this.camera.initEPConfig();
+        
+        this.timeInterval = null;
+        this.powerInterval = null;
+        this.viewPosition = 0.25;
+        this.isRotatingLeft = false;
+        this.isRotatingRight = false;
+        this.rotationSpeed = 0.015;
+        
+        this.initElements();
+        this.bindEvents();
+    }
 
-        // ==================== PERFORMANCE / LIFECYCLE ====================
-        // Keeps the original AI rules intact while preventing duplicate loops,
-        // stale delayed callbacks, and unnecessary DOM work.
-        this.debug = false;
-        this._runId = 0;
-        this._cameraUpdateQueued = false;
-        this._trackedTimers = new Set();
-        this._domCache = Object.create(null);
-        this._movementCache = Object.create(null);
-        this._trumpMovementCache = Object.create(null);
+    initElements() {
+        this.mainMenu = document.getElementById('main-menu');
+        this.gameScreen = document.getElementById('game-screen');
+        this.gameOverElement = document.getElementById('game-over');
+        this.gameOverText = document.getElementById('game-over-text');
+        this.tutorialOverlay = document.getElementById('tutorial-overlay');
+        this.tutorialGotItBtn = document.getElementById('tutorial-got-it');
+        
+        this.startBtn = document.getElementById('start-game');
+        this.continueBtn = document.getElementById('continue-game');
+        this.specialNightBtn = document.getElementById('special-night-btn');
+        this.starIcon = document.getElementById('star-icon');
+        this.starIcon2 = document.getElementById('star-icon-2');
+        this.restartBtn = document.getElementById('restart');
+        this.mainMenuBtn = document.getElementById('main-menu-btn');
+    }
 
-        // ==================== AI配置系统 ====================
-        // Epstein AI配置（按夜数）
-        this.epsteinConfig = {
-            1: {
-                aiLevel: 12,              // AI等级 (0-20)，12/20 = 60%移动概率
-                movementInterval: [9000, 10000],  // 移动检查间隔（毫秒）[最小值, 最大值]
-                movementDuration: 1000,   // 移动动画时长（毫秒）
-                spawnDelay: 120000,        // 出场延迟（毫秒）
-                movementProbability: {    // 移动方向概率
-                    forward: 0.8,         // 前进概率 100%
-                    lateral: 0.1,         // 平移概率 0%（当前不支持）
-                    backward: 0.1         // 后退概率 0%
-                },
-                soundLureResistance: 0  // 对sound吸引的抵抗概率（0-1）
-            },
-            2: {
-                aiLevel: 12,
-                movementInterval: [9000, 10000],
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.8,
-                    lateral: 0.1,
-                    backward: 0.1
-                },
-                soundLureResistance: 0.1
-            },
-            3: {
-                aiLevel: 12,
-                movementInterval: [9000, 10000],
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.9,
-                    lateral: 0.1,
-                    backward: 0
-                },
-                soundLureResistance: 0.15  // Night 3开始：15%概率抵抗sound吸引
-            },
-            4: {
-                aiLevel: 12,
-                movementInterval: [9000, 10000],    // Night 4：9-10秒间隔
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.9,
-                    lateral: 0.1,
-                    backward: 0
-                },
-                soundLureResistance: 0.15
-            },
-            5: {
-                aiLevel: 12,
-                movementInterval: [9000, 10000],    // Night 5：9-10秒间隔
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.9,
-                    lateral: 0.1,
-                    backward: 0.0
-                },
-                soundLureResistance: 0.15
-            },
-            6: {
-                aiLevel: 12,
-                movementInterval: [6500, 7500],  // 6.5-7.5秒间隔
-                movementDuration: 1000,
-                spawnDelay: 0,  // Night 6立即出场
-                movementProbability: {
-                    forward: 0.9,  // 90%前进
-                    lateral: 0.1,  // 10%平移
-                    backward: 0.0  // 不后退
-                },
-                soundLureResistance: 0.15
+    bindEvents() {
+        this.startBtn.addEventListener('click', () => this.startGame());
+        this.continueBtn.addEventListener('click', () => this.continueGame());
+        this.specialNightBtn.addEventListener('click', () => this.startSpecialNight());
+        this.restartBtn.addEventListener('click', () => this.restartGame());
+        this.mainMenuBtn.addEventListener('click', () => this.showMainMenu());
+        this.tutorialGotItBtn.addEventListener('click', () => this.closeTutorial());
+    }
+    
+    // 加载保存的进度
+    loadProgress() {
+        const savedNight = localStorage.getItem('fnae_current_night');
+        if (savedNight) {
+            const night = parseInt(savedNight);
+            if (night > 1 && night <= this.state.maxNights) {
+                this.state.currentNight = night;
+                return true;
             }
-        };
-        
-        // Trump AI配置（按夜数，Night 2开始）
-        this.trumpConfig = {
-            2: {
-                aiLevel: 10,              // AI等级，10/20 = 50%移动概率
-                movementInterval: [8000, 9000],  // 8-9秒随机（比EP快一点）
-                movementDuration: 1000,   // 移动动画时长（毫秒）
-                spawnDelay: 0,            // 出场延迟（毫秒），开局就出场
-                movementProbability: {    // 移动方向概率
-                    forward: 0.9,         // 90% 前进（更激进）
-                    lateral: 0.1,         // 10% 平移
-                    backward: 0.0         // 0% 后退
-                },
-                ventCrawling: {           // 通风管爬行配置
-                    cam1Probability: 1.0, // 在cam1时爬行概率 100%
-                    cam2Probability: 0.5, // 在cam2时爬行概率 50%
-                    soundDelay: 5000,     // 开始爬行后多久播放音效（毫秒）
-                    soundDuration: 10000, // 爬行音效持续时长（毫秒）
-                    totalDuration: 20000, // 爬行总时长（毫秒）
-                    retreatDelay: 2000,   // 被阻止后多久播放撤退音效（毫秒）
-                    retreatSoundDuration: 3000 // 撤退音效持续时长（毫秒）
-                }
-            },
-            3: {
-                aiLevel: 13,              // 65%移动概率
-                movementInterval: [8000, 9000],  // 8-9秒随机（比EP快一点）
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.8,         // 80% 前进
-                    lateral: 0.2,         // 20% 平移（增加不可预测性）
-                    backward: 0.0
-                },
-                ventCrawling: {
-                    cam1Probability: 1.0,
-                    cam2Probability: 0.5,
-                    soundDelay: 5000,
-                    soundDuration: 10000,
-                    totalDuration: 20000,
-                    retreatDelay: 2000,
-                    retreatSoundDuration: 3000
-                }
-            },
-            4: {
-                aiLevel: 13,
-                movementInterval: [8000, 9000],    // 8-9秒随机（比EP快）
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.8,         // 80% 前进
-                    lateral: 0.2,         // 20% 平移
-                    backward: 0.0
-                },
-                ventCrawling: {
-                    cam1Probability: 1.0,
-                    cam2Probability: 0.5,
-                    soundDelay: 5000,
-                    soundDuration: 10000,
-                    totalDuration: 20000,
-                    retreatDelay: 2000,
-                    retreatSoundDuration: 3000
-                }
-            },
-            5: {
-                aiLevel: 13,
-                movementInterval: [8000, 9000],    // 8-9秒随机（比EP快）
-                movementDuration: 1000,
-                spawnDelay: 0,
-                movementProbability: {
-                    forward: 0.8,         // 80% 前进
-                    lateral: 0.2,         // 20% 平移
-                    backward: 0.0
-                },
-                ventCrawling: {
-                    cam1Probability: 1.0,
-                    cam2Probability: 0.5,
-                    soundDelay: 5000,
-                    soundDuration: 10000,
-                    totalDuration: 20000,
-                    retreatDelay: 2000,
-                    retreatSoundDuration: 3000
-                }
-            }
-        };
-        
-        // 当前配置（运行时使用）
-        this.currentEpsteinConfig = null;
-        this.currentTrumpConfig = null;
-        
-        // 爱泼斯坦的状态
-        this.epstein = {
-            currentLocation: 'cam11', // 起始位置（最远）
-            aiLevel: 0, // AI等级 (0-20)
-            movementTimer: null,
-            movementInterval: 12000, // 移动检查间隔
-            hasMovedOnce: false, // 是否已经移动过一次
-            hasSpawned: false, // 是否已经出场
-            night4AggressiveMode: false,
-            spawnTimer: null,
-        };
-        
-        // 特朗普的状态
-        this.trump = {
-            currentLocation: 'cam10', // 起始位置
-            aiLevel: 0, // AI等级 (0-20)
-            movementTimer: null,
-            movementInterval: 10000, // 移动检查间隔
-            hasSpawned: false, // 是否已经出场
-            isCrawling: false, // 是否正在爬行
-            crawlingTimer: null, // 爬行计时器
-            crawlingFrom: null, // 从哪个摄像头开始爬行（cam1或cam2）
-            retreatTimer: null, // 撤退计时器
-            spawnTimer: null,
-            crawlingSoundTimer: null,
-            crawlingStopSoundTimer: null,
-            retreatSoundTimer: null,
-            retreatStopSoundTimer: null,
-            night5AggressiveMode: false,
-        };
-        
-        // 霍金的状态（第3关开始）
-        this.hawking = {
-            active: false, // 是否激活
-            location: 'cam6', // 固定在cam6
-            timer: null, // 计时器
-            warningLevel: 0, // 0=无警告, 1=黄色警告, 2=红色警告
-            warningTimer: null, // 警告计时器
-            attackTimer: null, // 攻击计时器
-        };
-        
-        // 每个摄像头使用的角色图片（根据距离办公室远近）
-        this.characterImages = {
-            'cam11': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-            'cam10': '/FNAE-HTML5-1.1.5/assets/images/ep1.png',
-            'cam1': '/FNAE-HTML5-1.1.5/assets/images/ep4.png',
-            'cam9': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-            'cam8': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-            'cam7': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-            'cam6': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-            'cam5': '/FNAE-HTML5-1.1.5/assets/images/enemyep4.png',
-            'cam4': '/FNAE-HTML5-1.1.5/assets/images/ep1.png',
-            'cam3': '/FNAE-HTML5-1.1.5/assets/images/ep4.png',
-            'cam2': '/FNAE-HTML5-1.1.5/assets/images/enemyep1.png',
-        };
-        
-        // Night 6 专用图片（带电眼）
-        this.characterImagesNight6 = {
-            'cam11': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-            'cam10': '/FNAE-HTML5-1.1.5/assets/images/ep1_night6.png',
-            'cam1': '/FNAE-HTML5-1.1.5/assets/images/ep4_night6.png',
-            'cam9': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-            'cam8': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-            'cam7': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-            'cam6': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-            'cam5': '/FNAE-HTML5-1.1.5/assets/images/enemyep4_night6.png',
-            'cam4': '/FNAE-HTML5-1.1.5/assets/images/ep1_night6.png',
-            'cam3': '/FNAE-HTML5-1.1.5/assets/images/ep4_night6.png',
-            'cam2': '/FNAE-HTML5-1.1.5/assets/images/enemyep1_night6.png',
-        };
-        
-        // 特朗普的图片配置（使用绝对路径）
-        this.trumpImages = {
-            'cam10': '/FNAE-HTML5-1.1.5/assets/images/trump3.png',
-            'cam11': '/FNAE-HTML5-1.1.5/assets/images/trump3.png',
-            'cam9': '/FNAE-HTML5-1.1.5/assets/images/trump.png',
-            'cam8': '/FNAE-HTML5-1.1.5/assets/images/trump5.png',
-            'cam7': '/FNAE-HTML5-1.1.5/assets/images/trump3.png',
-            'cam6': '/FNAE-HTML5-1.1.5/assets/images/trump3.png',
-            'cam5': '/FNAE-HTML5-1.1.5/assets/images/trump2.png',
-            'cam1': '/FNAE-HTML5-1.1.5/assets/images/trump4.png',
-            'cam2': '/FNAE-HTML5-1.1.5/assets/images/trump4.png',
-            'cam3': '/FNAE-HTML5-1.1.5/assets/images/trump2.png',
-            'cam4': '/FNAE-HTML5-1.1.5/assets/images/trump3.png',
-        };
-        
-        // 定义移动路径图（根据地图连接关系，只能向前移动）
-        // 每个位置的步长（距离办公室的最短路径长度）- 使用BFS计算
-        // Office ← Cam1 ← Cam3 ← ...
-        this.locationDepth = {
-            'office': 0,  // 终点
-            'cam1': 1,    // Cam1 → Office (1步)
-            'cam2': 2,    // Cam2 → Cam1 → Office (2步) ✅ 修正
-            'cam3': 2,    // Cam3 → Cam1 → Office (2步)
-            'cam6': 3,    // Cam6 → Cam3 → Cam1 → Office (3步)
-            'cam4': 3,    // Cam4 → Cam3 → Cam1 → Office (3步)
-            'cam5': 4,    // Cam5 → Cam6 → Cam3 → Cam1 → Office (4步)
-            'cam7': 4,    // Cam7 → Cam4 → Cam3 → Cam1 → Office (4步)
-            'cam8': 5,    // Cam8 → Cam5 → Cam6 → Cam3 → Cam1 → Office (5步)
-            'cam11': 5,   // Cam11 → Cam7 → Cam4 → Cam3 → Cam1 → Office (5步)
-            'cam9': 5,    // Cam9 → Cam7 → Cam4 → Cam3 → Cam1 → Office (5步)
-            'cam10': 6,   // Cam10 → Cam9 → Cam7 → Cam4 → Cam3 → Cam1 → Office (6步)
-        };
-        
-        // 特朗普的步长配置（使用和EP相同的步长，一步一步走）
-        this.trumpLocationDepth = {
-            'office': 0,  // 终点
-            'cam1': 1,    // Cam1 → Office (1步)
-            'cam2': 2,    // Cam2 → Cam1 → Office (2步)
-            'cam3': 2,    // Cam3 → Cam1 → Office (2步)
-            'cam6': 3,    // Cam6 → Cam3 → Cam1 → Office (3步)
-            'cam4': 3,    // Cam4 → Cam3 → Cam1 → Office (3步)
-            'cam5': 4,    // Cam5 → Cam6 → Cam3 → Cam1 → Office (4步)
-            'cam7': 4,    // Cam7 → Cam4 → Cam3 → Cam1 → Office (4步)
-            'cam8': 5,    // Cam8 → Cam5 → Cam6 → Cam3 → Cam1 → Office (5步)
-            'cam11': 5,   // Cam11 → Cam7 → Cam4 → Cam3 → Cam1 → Office (5步)
-            'cam9': 5,    // Cam9 → Cam7 → Cam4 → Cam3 → Cam1 → Office (5步)
-            'cam10': 6,   // Cam10 → Cam9 → Cam7 → Cam4 → Cam3 → Cam1 → Office (6步)
-        };
-        
-        // 定义移动路径图（只能向办公室方向移动，不能后退）
-        this.movementPaths = {
-            'cam11': ['cam7', 'cam8'], // Cam11只连接Cam7和Cam8
-            'cam9': ['cam7', 'cam10'],
-            'cam10': ['cam9'], // 死胡同，只能去cam9
-            'cam8': ['cam7', 'cam5'],
-            'cam7': ['cam4'],
-            'cam4': ['cam2', 'cam3'], // 修正：添加cam3
-            'cam5': ['cam4', 'cam6'],
-            'cam2': ['cam3', 'cam1'], // 修正：添加cam1
-            'cam3': ['cam1', 'cam6'],
-            'cam6': ['cam3'],
-            'cam1': ['office'], // 大门，只能进办公室
-            'office': [] // 到达办公室，游戏结束
-        };
-        
-        // 每个摄像头的邻近房间（用于sound吸引）- 完整的双向连接
-        this.adjacentRooms = {
-            'cam11': ['cam7', 'cam8'],
-            'cam9': ['cam7', 'cam10'],
-            'cam10': ['cam9'],
-            'cam8': ['cam11', 'cam7', 'cam5'],
-            'cam7': ['cam11', 'cam8', 'cam9', 'cam4'],
-            'cam4': ['cam7', 'cam2', 'cam5', 'cam3'], // 修正：添加cam3
-            'cam5': ['cam8', 'cam4', 'cam6'],
-            'cam2': ['cam4', 'cam3', 'cam1'], // 修正：添加cam1
-            'cam3': ['cam2', 'cam1', 'cam6', 'cam4'], // 修正：添加cam4
-            'cam6': ['cam5', 'cam3'],
-            'cam1': ['cam3', 'cam2'], // 修正：添加cam2（不包括office，因为那是终点）
-        };
-        
-        // 每个摄像头的角色位置配置（CSS定位）
-        // 预计算移动候选，避免每次AI tick都创建临时数组。
-        this.buildMovementCaches();
-        
-        this.characterPositions = {
-            'cam11': { left: '57.1%', bottom: '0%', width: '29%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam10': { left: '73.8%', bottom: '1.6%', width: '89.2%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam1': { left: '39.9%', bottom: '35.3%', width: '38.8%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam9': { left: '18.5%', bottom: '0%', width: '29.6%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam8': { left: '96.1%', bottom: '0%', width: '29.6%', transform: 'translateX(-50%) rotate(-23deg)' },
-            'cam7': { left: '49.7%', bottom: '0%', width: '29.6%', transform: 'translateX(-50%) rotate(-5deg)' },
-            'cam6': { left: '16.6%', bottom: '0%', width: '29.6%', transform: 'translateX(-50%) rotate(-5deg)' },
-            'cam5': { left: '71.1%', bottom: '0%', width: '29.6%', transform: 'translateX(-50%) rotate(-5deg)' },
-            'cam4': { left: '91.4%', bottom: '6.8%', width: '66.9%', transform: 'translateX(-50%) rotate(-5deg)' },
-            'cam3': { left: '7.4%', bottom: '5%', width: '66.9%', transform: 'translateX(-50%) rotate(-5deg)' },
-            'cam2': { left: '39.6%', bottom: '27.7%', width: '37.8%', transform: 'translateX(-50%) rotate(-139deg)' },
-        };
-        
-        // 角色明暗度配置（百分比）
-        this.characterBrightness = {
-            'cam11': 100,
-            'cam10': 100,
-            'cam1': 22,
-            'cam9': 8,
-            'cam8': 9,
-            'cam7': 9,
-            'cam6': 9,
-            'cam5': 7,
-            'cam4': 65,
-            'cam3': 30,
-            'cam2': 8,
-        };
-        
-        // 角色旋转配置（度数）
-        this.characterRotation = {
-            'cam11': 0,
-            'cam10': 0,
-            'cam1': 0,
-            'cam9': 0,
-            'cam8': -23,
-            'cam7': -5,
-            'cam6': -5,
-            'cam5': -5,
-            'cam4': -5,
-            'cam3': -5,
-            'cam2': -139,
-        };
-        
-        // 电眼特效配置（Night 6 特殊夜晚）- 坐标相对于EP图片
-        this.lightningEyesConfig = {
-            'cam11': {
-                eye1: { left: '46.3%', top: '14.8%', width: '10%', height: '10%' },
-                eye2: { left: '54.2%', top: '13.8%', width: '10%', height: '10%' }
-            },
-            'cam10': {
-                eye1: { left: '37.0%', top: '41.7%', width: '10%', height: '10%' },
-                eye2: { left: '38.7%', top: '43.5%', width: '10%', height: '10%' }
-            },
-            'cam1': {
-                eye1: { left: '47.7%', top: '41.6%', width: '10%', height: '10%' },
-                eye2: { left: '49.9%', top: '42.3%', width: '10%', height: '10%' }
-            },
-            'cam9': {
-                eye1: { left: '46.8%', top: '15.1%', width: '10%', height: '10%' },
-                eye2: { left: '54.7%', top: '14.1%', width: '10%', height: '10%' }
-            },
-            'cam8': {
-                eye1: { left: '47.1%', top: '15.8%', width: '10%', height: '10%' },
-                eye2: { left: '53.9%', top: '15.3%', width: '10%', height: '10%' }
-            },
-            'cam7': {
-                eye1: { left: '46.3%', top: '15.6%', width: '10%', height: '10%' },
-                eye2: { left: '54.2%', top: '13.6%', width: '10%', height: '10%' }
-            },
-            'cam6': {
-                eye1: { left: '46.8%', top: '15.4%', width: '10%', height: '10%' },
-                eye2: { left: '53.7%', top: '14.5%', width: '10%', height: '10%' }
-            },
-            'cam5': {
-                eye1: { left: '52.2%', top: '21.3%', width: '10%', height: '10%' },
-                eye2: { left: '62.0%', top: '23.1%', width: '10%', height: '10%' }
-            },
-            'cam4': {
-                eye1: { left: '37.1%', top: '42.4%', width: '10%', height: '10%' },
-                eye2: { left: '38.4%', top: '43.6%', width: '10%', height: '10%' }
-            },
-            'cam3': {
-                eye1: { left: '47.7%', top: '41.4%', width: '10%', height: '10%' },
-                eye2: { left: '50.0%', top: '42.5%', width: '10%', height: '10%' }
-            },
-            'cam2': {
-                eye1: { left: '46.1%', top: '15.3%', width: '10%', height: '10%' },
-                eye2: { left: '53.9%', top: '14.3%', width: '10%', height: '10%' }
-            }
-        };
-        
-        // 特朗普的位置配置（使用调试工具设置）
-        this.trumpPositions = {
-            'cam10': { left: '10%', bottom: '0%', width: '40%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam11': { left: '38.2%', bottom: '0%', width: '40%', transform: 'translateX(-50%) rotate(0deg)' },
-            'cam9': { left: '0%', bottom: '34.6%', width: '13.9%', transform: 'translateX(-50%) rotate(44deg)' },
-            'cam8': { left: '1.5%', bottom: '24.5%', width: '20.1%', transform: 'translateX(-50%) rotate(58deg)' },
-            'cam7': { left: '7.4%', bottom: '0%', width: '41.4%', transform: 'translateX(-50%) rotate(1deg)' },
-            'cam6': { left: '86.3%', bottom: '0%', width: '41.4%', transform: 'translateX(-50%) rotate(1deg)' },
-            'cam5': { left: '0%', bottom: '0%', width: '29.3%', transform: 'translateX(-50%) rotate(1deg)' },
-            'cam1': { left: '10.8%', bottom: '15%', width: '31.6%', transform: 'translateX(-50%) rotate(1deg)' },
-            'cam2': { left: '77.2%', bottom: '32.3%', width: '31.6%', transform: 'translateX(-50%) rotate(1deg)' },
-            'cam3': { left: '100%', bottom: '21.4%', width: '32.9%', transform: 'translateX(-50%) rotate(-62deg)' },
-            'cam4': { left: '11%', bottom: '0%', width: '31.6%', transform: 'translateX(-50%) rotate(1deg)' },
-        };
-        
-        // 特朗普的明暗度配置
-        this.trumpBrightness = {
-            'cam10': 31,
-            'cam11': 100,
-            'cam9': 29,
-            'cam8': 28,
-            'cam7': 28,
-            'cam6': 28,
-            'cam5': 12,
-            'cam1': 40,
-            'cam2': 31,
-            'cam3': 19,
-            'cam4': 31,
-        };
-        
-        // 特朗普的旋转配置
-        this.trumpRotation = {
-            'cam10': 0,
-            'cam11': 0,
-            'cam9': 44,
-            'cam8': 58,
-            'cam7': 1,
-            'cam6': 1,
-            'cam5': 1,
-            'cam1': 1,
-            'cam2': 1,
-            'cam3': -62,
-            'cam4': 1,
-        };
+        }
+        return false;
     }
-
-    // ==================== PERFORMANCE HELPERS ====================
-
-    // Lightweight logging switch. Set this.debug = true while debugging.
-    debugLog(...args) {
-        if (this.debug) console.log(...args);
+    
+    // 保存进度
+    saveProgress() {
+        if (this.state.currentNight > 1) {
+            localStorage.setItem('fnae_current_night', this.state.currentNight.toString());
+        }
     }
-
-    // Track delayed callbacks so stop/reset can invalidate them all at once.
-    setTrackedTimeout(callback, delay) {
-        const runId = this._runId;
-        const timer = setTimeout(() => {
-            this._trackedTimers.delete(timer);
-            if (runId !== this._runId) return;
-            callback();
-        }, Math.max(0, delay));
-        this._trackedTimers.add(timer);
-        return timer;
+    
+    // 清除进度
+    clearProgress() {
+        localStorage.removeItem('fnae_current_night');
     }
-
-    clearAllTrackedTimers() {
-        for (const timer of this._trackedTimers) clearTimeout(timer);
-        this._trackedTimers.clear();
-    }
-
-    buildMovementCaches() {
-        const build = (depthMap) => {
-            const locations = Object.keys(depthMap).filter(loc => loc !== 'office');
-            const cache = Object.create(null);
-
-            for (const currentLoc of locations) {
-                const currentDepth = depthMap[currentLoc];
-                const adjacent = this.adjacentRooms[currentLoc] || [];
-
-                cache[currentLoc] = {
-                    forward: locations.filter(loc => depthMap[loc] === currentDepth - 1),
-                    lateral: adjacent.filter(loc => depthMap[loc] === currentDepth),
-                    backward: adjacent.filter(loc => depthMap[loc] === currentDepth + 1)
-                };
-            }
-
-            return cache;
-        };
-
-        this._movementCache = build(this.locationDepth);
-        this._trumpMovementCache = build(this.trumpLocationDepth);
-    }
-
-    getCachedElement(id) {
-        const cached = this._domCache[id];
-        if (cached && cached.isConnected) return cached;
-
-        const element = document.getElementById(id);
-        if (element) this._domCache[id] = element;
-        return element || null;
-    }
-
-    queueCameraDisplayUpdate() {
-        if (this._cameraUpdateQueued) return;
-        this._cameraUpdateQueued = true;
-
-        const runId = this._runId;
-        const flush = () => {
-            this._cameraUpdateQueued = false;
-            if (runId !== this._runId) return;
-            this.updateCameraDisplay();
-        };
-
-        if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(flush);
+    
+    // 更新Continue按钮显示
+    updateContinueButton() {
+        if (this.loadProgress()) {
+            this.continueBtn.classList.remove('hidden');
+            this.continueBtn.textContent = `CONTINUE (NIGHT ${this.state.currentNight})`;
         } else {
-            setTimeout(flush, 0);
+            this.continueBtn.classList.add('hidden');
         }
-    }
-
-    // 开始AI循环
-    start() {
-        const night = this.game.state.currentNight;
-
-        // Invalidate callbacks from any previous run.
-        this._runId++;
-        this.clearAllTrackedTimers();
-
-        this.debugLog(`🎮 EnemyAI.start() called for Night ${night}`);
-
-        this.loadAIConfig();
-
-        this.debugLog(`Night ${night} - Epstein AI Config:`, this.currentEpsteinConfig);
-        this.debugLog(`Epstein will spawn in ${this.currentEpsteinConfig.spawnDelay / 1000} seconds...`);
-
-        this.epstein.spawnTimer = this.setTrackedTimeout(() => {
-            this.debugLog(`⏰ Spawn timer triggered after ${this.currentEpsteinConfig.spawnDelay}ms`);
-            this.spawnEpstein();
-            this.epstein.spawnTimer = null;
-        }, this.currentEpsteinConfig.spawnDelay);
-
-        // 第2-5晚，特朗普出场（Night 6 没有 Trump）
-        if (night >= 2 && night <= 5 && this.currentTrumpConfig) {
-            this.debugLog(`Night ${night} - Trump AI Config:`, this.currentTrumpConfig);
-            this.debugLog(`Trump will spawn in ${this.currentTrumpConfig.spawnDelay / 1000} seconds...`);
-
-            this.trump.spawnTimer = this.setTrackedTimeout(() => {
-                this.spawnTrump();
-                this.trump.spawnTimer = null;
-            }, this.currentTrumpConfig.spawnDelay);
-        }
-
-        // 第3晚及以后，霍金激活（但 Night 6 不激活）
-        if (night >= 3 && night <= 5) {
-            this.debugLog('Hawking activated at cam6!');
-            this.startHawking();
-        }
-    }
-
-    // 加载AI配置
-    loadAIConfig() {
-        const night = this.game.state.currentNight;
         
-        // 加载Epstein配置
-        this.currentEpsteinConfig = this.epsteinConfig[night] || this.epsteinConfig[1];
-        this.epstein.aiLevel = this.currentEpsteinConfig.aiLevel;
-        this.epstein.movementInterval = this.getRandomInterval(this.currentEpsteinConfig.movementInterval);
-        
-        // 加载Trump配置（Night 2-5）
-        if (night >= 2 && night <= 5) {
-            this.currentTrumpConfig = this.trumpConfig[night] || this.trumpConfig[2];
-            this.trump.aiLevel = this.currentTrumpConfig.aiLevel;
-            this.trump.movementInterval = this.getRandomInterval(this.currentTrumpConfig.movementInterval);
+        // 检查是否解锁特殊夜晚
+        const night6Unlocked = localStorage.getItem('night6Unlocked');
+        if (night6Unlocked === 'true') {
+            this.specialNightBtn.classList.remove('hidden');
+            this.starIcon.classList.remove('hidden');
         } else {
-            this.currentTrumpConfig = null; // Night 6 没有 Trump
+            this.specialNightBtn.classList.add('hidden');
+            this.starIcon.classList.add('hidden');
         }
         
-        this.debugLog(`AI Config loaded for Night ${night}`);
-        this.debugLog(`- Epstein: Level ${this.epstein.aiLevel}, Interval ${this.epstein.movementInterval}ms`);
-        if (this.currentTrumpConfig) {
-            this.debugLog(`- Trump: Level ${this.trump.aiLevel}, Interval ${this.trump.movementInterval}ms`);
+        // 检查是否通关Night 6
+        const night6Completed = localStorage.getItem('night6Completed');
+        if (night6Completed === 'true') {
+            this.starIcon2.classList.remove('hidden');
         } else {
-            this.debugLog(`- Trump: Not active this night`);
+            this.starIcon2.classList.add('hidden');
+        }
+        
+        // 恢复到Night 1（不影响按钮显示）
+        this.state.currentNight = 1;
+    }
+    
+    // Continue游戏（从保存的关卡开始）
+    async continueGame() {
+        if (this.loadProgress()) {
+            this.mainMenu.classList.add('hidden');
+            
+            const menuMusic = document.getElementById('menu-music');
+            if (menuMusic) {
+                menuMusic.pause();
+                menuMusic.currentTime = 0;
+                menuMusic.loop = false;
+            }
+            
+            // 重置敌人AI状态
+            this.enemyAI.reset();
+            
+            // 直接开始游戏，不播放过场动画
+            await this.initGame();
         }
     }
     
-    // 从区间中随机选择一个间隔时间
-    getRandomInterval(intervalConfig) {
-        // 如果是数组，从区间中随机选择
-        if (Array.isArray(intervalConfig)) {
-            const [min, max] = intervalConfig;
-            return Math.floor(Math.random() * (max - min + 1)) + min;
-        }
-        // 如果是数字，直接返回
-        return intervalConfig;
-    }
-    
-    // EP出场
-    spawnEpstein() {
-        if (this.epstein.hasSpawned) return;
+    // 开始特殊夜晚（Night 6）
+    async startSpecialNight() {
+        this.state.currentNight = 6; // 设置为Night 6
+        this.clearProgress(); // 清除普通进度
         
-        this.epstein.hasSpawned = true;
-        this.debugLog('✅ Epstein has spawned!');
+        this.mainMenu.classList.add('hidden');
         
-        // 第一关触发摄像头故障，第二关及以后不触发
-        if (this.game.state.currentNight === 1) {
-            this.triggerCameraFailure();
+        const menuMusic = document.getElementById('menu-music');
+        if (menuMusic) {
+            menuMusic.pause();
+            menuMusic.currentTime = 0;
+            menuMusic.loop = false;
         }
         
-        // 开始移动检查循环
-        this.startMovementLoop();
-    }
-    
-    // Trump出场
-    spawnTrump() {
-        if (this.trump.hasSpawned) return;
+        // 重置敌人AI状态
+        this.enemyAI.reset();
         
-        this.trump.hasSpawned = true;
-        this.debugLog('Trump has spawned at cam10!');
-        
-        // 立即更新摄像头显示（如果摄像头打开）
-        if (this.game.state.cameraOpen) {
-            this.updateCameraDisplay();
-        }
-        
-        // 开始Trump的移动检查循环
-        this.startTrumpMovementLoop();
+        // 直接开始游戏，不播放过场动画
+        await this.initGame();
     }
 
-    // 停止AI
-    stop() {
-        this._runId++;
-        this.clearAllTrackedTimers();
-
-        if (this.epstein.movementTimer) {
-            clearTimeout(this.epstein.movementTimer);
-            this.epstein.movementTimer = null;
-        }
-        if (this.epstein.spawnTimer) {
-            clearTimeout(this.epstein.spawnTimer);
-            this.epstein.spawnTimer = null;
-        }
-
-        if (this.trump.movementTimer) {
-            clearTimeout(this.trump.movementTimer);
-            this.trump.movementTimer = null;
-        }
-        if (this.trump.spawnTimer) {
-            clearTimeout(this.trump.spawnTimer);
-            this.trump.spawnTimer = null;
-        }
-        if (this.trump.crawlingTimer) {
-            clearTimeout(this.trump.crawlingTimer);
-            this.trump.crawlingTimer = null;
-        }
-        if (this.trump.retreatTimer) {
-            clearTimeout(this.trump.retreatTimer);
-            this.trump.retreatTimer = null;
-        }
-        if (this.trump.crawlingSoundTimer) {
-            clearTimeout(this.trump.crawlingSoundTimer);
-            this.trump.crawlingSoundTimer = null;
-        }
-        if (this.trump.crawlingStopSoundTimer) {
-            clearTimeout(this.trump.crawlingStopSoundTimer);
-            this.trump.crawlingStopSoundTimer = null;
-        }
-        if (this.trump.retreatSoundTimer) {
-            clearTimeout(this.trump.retreatSoundTimer);
-            this.trump.retreatSoundTimer = null;
-        }
-        if (this.trump.retreatStopSoundTimer) {
-            clearTimeout(this.trump.retreatStopSoundTimer);
-            this.trump.retreatStopSoundTimer = null;
-        }
-
-        if (this.hawking.timer) {
-            clearTimeout(this.hawking.timer);
-            this.hawking.timer = null;
-        }
-        if (this.hawking.warningTimer) {
-            clearTimeout(this.hawking.warningTimer);
-            this.hawking.warningTimer = null;
-        }
-        if (this.hawking.attackTimer) {
-            clearTimeout(this.hawking.attackTimer);
-            this.hawking.attackTimer = null;
-        }
-
-        // 停止爬行音效
-        this.game.assets.stopSound('ventCrawling');
-        // 隐藏霍金警告
-        this.hideHawkingWarning();
-    }
-
-    // 开始移动检查循环
-    startMovementLoop() {
-        if (!this.epstein.hasSpawned || this.epstein.currentLocation === 'office') return;
-
-        if (this.epstein.movementTimer) {
-            clearTimeout(this.epstein.movementTimer);
-            this.epstein.movementTimer = null;
-        }
-
-        const runId = this._runId;
-
-        const scheduleNextCheck = () => {
-            if (runId !== this._runId || !this.epstein.hasSpawned) return;
-            if (this.epstein.currentLocation === 'office') return;
-
-            // Night 4特殊机制：4AM后EP变得更激进
-            let currentConfig = this.currentEpsteinConfig;
-            if (this.game.state.currentNight === 4 && this.game.state.currentTime >= 4) {
-                currentConfig = {
-                    ...this.currentEpsteinConfig,
-                    movementInterval: [8000, 10000],
-                    movementProbability: {
-                        forward: 1.0,
-                        lateral: 0.0,
-                        backward: 0.0
-                    }
-                };
-            }
-
-            const nextInterval = this.getRandomInterval(currentConfig.movementInterval);
-
-            this.epstein.movementTimer = setTimeout(() => {
-                if (runId !== this._runId || !this.epstein.hasSpawned) return;
-                this.checkMovement();
-                scheduleNextCheck();
-            }, nextInterval);
-        };
-
-        scheduleNextCheck();
-    }
-
-    // 开始Trump的移动检查循环
-    startTrumpMovementLoop() {
-        if (!this.trump.hasSpawned || this.trump.isCrawling || this.trump.currentLocation === 'office') return;
-
-        if (this.trump.movementTimer) {
-            clearTimeout(this.trump.movementTimer);
-            this.trump.movementTimer = null;
-        }
-
-        const runId = this._runId;
-
-        const scheduleNextCheck = () => {
-            if (runId !== this._runId || !this.trump.hasSpawned) return;
-            if (this.trump.isCrawling || this.trump.currentLocation === 'office') return;
-
-            // Night 5特殊机制：4AM后Trump变得更激进
-            let currentConfig = this.currentTrumpConfig;
-            if (this.game.state.currentNight === 5 && this.game.state.currentTime >= 4) {
-                currentConfig = {
-                    ...this.currentTrumpConfig,
-                    movementInterval: [6000, 7000],
-                    movementProbability: {
-                        forward: 1.0,
-                        lateral: 0.0,
-                        backward: 0.0
-                    }
-                };
-            }
-
-            const nextInterval = this.getRandomInterval(currentConfig.movementInterval);
-
-            this.trump.movementTimer = setTimeout(() => {
-                if (runId !== this._runId || !this.trump.hasSpawned) return;
-                this.checkTrumpMovement();
-                scheduleNextCheck();
-            }, nextInterval);
-        };
-
-        scheduleNextCheck();
-    }
-
-    // 检查是否移动（FNAF机制）
-    checkMovement() {
-        // 如果还未出场，不移动
-        if (!this.epstein.hasSpawned) return;
+    async startGame() {
+        // NEW GAME总是从Night 1开始
+        this.state.currentNight = 1;
+        this.clearProgress(); // 清除之前的进度
         
-        // 如果AI等级为0，不移动
-        if (this.epstein.aiLevel === 0) return;
+        this.mainMenu.classList.add('hidden');
         
-        // 如果已经在办公室，不再移动
-        if (this.epstein.currentLocation === 'office') return;
-        
-        // 生成随机数 1-20
-        const randomNumber = Math.floor(Math.random() * 20) + 1;
-        
-        // 如果随机数 <= AI等级，移动成功
-        if (randomNumber <= this.epstein.aiLevel) {
-            this.moveToNextLocation();
-        }
-    }
-    
-    // 检查Trump是否移动
-    checkTrumpMovement() {
-        // 如果还未出场，不移动
-        if (!this.trump.hasSpawned) return;
-        
-        // 如果AI等级为0，不移动
-        if (this.trump.aiLevel === 0) return;
-        
-        // 如果已经在办公室，不再移动
-        if (this.trump.currentLocation === 'office') return;
-        
-        // 生成随机数 1-20
-        const randomNumber = Math.floor(Math.random() * 20) + 1;
-        
-        // 如果随机数 <= AI等级，移动成功
-        if (randomNumber <= this.trump.aiLevel) {
-            this.moveTrumpToNextLocation();
-        }
-    }
-
-    // 移动到下一个位置（支持前进、平移、后退）
-    moveToNextLocation() {
-        const currentLoc = this.epstein.currentLocation;
-        const currentDepth = this.locationDepth[currentLoc];
-        
-        // Night 4特殊机制：4AM后EP变得更激进
-        let config = this.currentEpsteinConfig;
-        if (this.game.state.currentNight === 4 && this.game.state.currentTime >= 4) {
-            config = {
-                ...this.currentEpsteinConfig,
-                movementProbability: {
-                    forward: 1.0,
-                    lateral: 0.0,
-                    backward: 0.0
-                }
-            };
-            // 只在第一次触发时显示日志
-            if (!this.epstein.night4AggressiveMode) {
-                this.debugLog('⚡ Night 4: 4AM reached! EP is now in aggressive mode (forward only)');
-                this.epstein.night4AggressiveMode = true;
-            }
+        const menuMusic = document.getElementById('menu-music');
+        if (menuMusic) {
+            menuMusic.pause();
+            menuMusic.currentTime = 0;
+            menuMusic.loop = false;
         }
         
-        // 候选路径已在构造时预计算，避免每次移动重复扫描所有摄像头。
-        const cachedMoves = this._movementCache[currentLoc] || {
-            forward: [],
-            lateral: [],
-            backward: []
-        };
-        const forwardLocations = cachedMoves.forward;
-        const lateralLocations = cachedMoves.lateral;
-        const backwardLocations = cachedMoves.backward;
+        // 重置敌人AI状态
+        this.enemyAI.reset();
         
-        // 如果当前步长是1且没有前进位置，尝试移动到office
-        if (forwardLocations.length === 0 && currentDepth === 1) {
-            this.debugLog(`Epstein moved: ${currentLoc} -> office`);
-            this.epstein.currentLocation = 'office';
-            this.triggerJumpscare('epstein');
-            return;
-        }
+        const cutscene = document.getElementById('cutscene');
+        cutscene.classList.remove('hidden');
         
-        // 根据配置概率决定移动方向
-        const movementProb = config.movementProbability;
-        const totalProb = movementProb.forward + movementProb.lateral + movementProb.backward;
-        
-        // 如果总概率为0或没有任何可移动位置，不移动
-        if (totalProb === 0 || (forwardLocations.length === 0 && lateralLocations.length === 0 && backwardLocations.length === 0)) {
-            this.debugLog(`Epstein has no valid path from ${currentLoc}`);
-            return;
-        }
-        
-        // 归一化概率（确保总和为1）
-        const normalizedProb = {
-            forward: movementProb.forward / totalProb,
-            lateral: movementProb.lateral / totalProb,
-            backward: movementProb.backward / totalProb
-        };
-        
-        // 根据概率选择移动方向
-        const random = Math.random();
-        let selectedLocations = [];
-        let movementType = '';
-        
-        if (random < normalizedProb.forward && forwardLocations.length > 0) {
-            // 前进
-            selectedLocations = forwardLocations;
-            movementType = 'forward';
-        } else if (random < normalizedProb.forward + normalizedProb.lateral && lateralLocations.length > 0) {
-            // 平移
-            selectedLocations = lateralLocations;
-            movementType = 'lateral';
-        } else if (backwardLocations.length > 0) {
-            // 后退
-            selectedLocations = backwardLocations;
-            movementType = 'backward';
-        } else {
-            // 如果选中的方向没有可用位置，回退到前进（默认行为）
-            if (forwardLocations.length > 0) {
-                selectedLocations = forwardLocations;
-                movementType = 'forward (fallback)';
-            } else if (lateralLocations.length > 0) {
-                selectedLocations = lateralLocations;
-                movementType = 'lateral (fallback)';
-            } else if (backwardLocations.length > 0) {
-                selectedLocations = backwardLocations;
-                movementType = 'backward (fallback)';
-            } else {
-                this.debugLog(`Epstein has no valid path from ${currentLoc}`);
-                return;
-            }
-        }
-        
-        // 从选中的方向中随机选择一个位置
-        const nextLocation = selectedLocations[Math.floor(Math.random() * selectedLocations.length)];
-        
-        this.debugLog(`Epstein moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.locationDepth[nextLocation]})`);
-        
-        this.epstein.currentLocation = nextLocation;
-        
-        // 播放移动音效
-        this.game.assets.playSound('blip', false, 0.5);
-        
-        // 如果到达办公室，触发游戏结束
-        if (nextLocation === 'office') {
-            this.triggerJumpscare('epstein');
-            return;
-        }
-        
-        // 如果摄像头打开且没有故障，无论查看哪个摄像头都播放动画
-        if (this.game.state.cameraOpen && !this.game.state.cameraFailed) {
-            this.game.camera.playMovementTransition();
-        }
-        
-        // 更新摄像头显示
-        this.queueCameraDisplayUpdate();
-    }
-    
-    // Trump移动到下一个位置（支持前进、平移、后退）
-    moveTrumpToNextLocation() {
-        const currentLoc = this.trump.currentLocation;
-        const currentDepth = this.trumpLocationDepth[currentLoc];
-        
-        // Night 5特殊机制：4AM后Trump变得更激进
-        let config = this.currentTrumpConfig;
-        if (this.game.state.currentNight === 5 && this.game.state.currentTime >= 4) {
-            config = {
-                ...this.currentTrumpConfig,
-                movementProbability: {
-                    forward: 1.0,
-                    lateral: 0.0,
-                    backward: 0.0
-                },
-                ventCrawling: {
-                    ...this.currentTrumpConfig.ventCrawling,
-                    cam1Probability: 1.0, // 4AM后在cam1必定爬行
-                    cam2Probability: 0.8  // 4AM后在cam2有80%概率爬行
-                }
-            };
-            // 只在第一次触发时显示日志
-            if (!this.trump.night5AggressiveMode) {
-                this.debugLog('⚡ Night 5: 4AM reached! Trump is now in aggressive mode (faster + more crawling)');
-                this.trump.night5AggressiveMode = true;
-            }
-        }
-        
-        // 如果正在爬行，不能移动
-        if (this.trump.isCrawling) {
-            this.debugLog('Trump is crawling, cannot move');
-            return;
-        }
-        
-        // 如果在cam1，根据配置概率决定是否爬行
-        if (currentLoc === 'cam1') {
-            const shouldCrawl = Math.random() < config.ventCrawling.cam1Probability;
-            if (shouldCrawl) {
-                this.debugLog(`Trump starting to crawl from ${currentLoc} to office (${config.ventCrawling.cam1Probability * 100}% chance)`);
-                this.startTrumpCrawling(currentLoc);
-                return;
-            }
-        }
-        
-        // 如果在cam2，根据配置概率决定是否爬行
-        if (currentLoc === 'cam2') {
-            const shouldCrawl = Math.random() < config.ventCrawling.cam2Probability;
-            if (shouldCrawl) {
-                this.debugLog(`Trump decided to crawl from ${currentLoc} to office (${config.ventCrawling.cam2Probability * 100}% chance)`);
-                this.startTrumpCrawling(currentLoc);
-                return;
-            } else {
-                this.debugLog(`Trump decided to continue moving from ${currentLoc} (${(1 - config.ventCrawling.cam2Probability) * 100}% chance)`);
-                // 继续执行正常移动逻辑
-            }
-        }
-        
-        // 候选路径已在构造时预计算。
-        const cachedMoves = this._trumpMovementCache[currentLoc] || {
-            forward: [],
-            lateral: [],
-            backward: []
-        };
-        const forwardLocations = cachedMoves.forward;
-        const lateralLocations = cachedMoves.lateral;
-        const backwardLocations = cachedMoves.backward;
-        
-        // 如果没有任何可移动位置，不移动
-        if (forwardLocations.length === 0 && lateralLocations.length === 0 && backwardLocations.length === 0) {
-            this.debugLog(`Trump has no valid path from ${currentLoc}`);
-            return;
-        }
-        
-        // 根据配置概率决定移动方向
-        const movementProb = config.movementProbability;
-        const totalProb = movementProb.forward + movementProb.lateral + movementProb.backward;
-        
-        // 如果总概率为0，不移动
-        if (totalProb === 0) {
-            this.debugLog(`Trump movement probability is 0`);
-            return;
-        }
-        
-        // 归一化概率
-        const normalizedProb = {
-            forward: movementProb.forward / totalProb,
-            lateral: movementProb.lateral / totalProb,
-            backward: movementProb.backward / totalProb
-        };
-        
-        // 根据概率选择移动方向
-        const random = Math.random();
-        let selectedLocations = [];
-        let movementType = '';
-        
-        if (random < normalizedProb.forward && forwardLocations.length > 0) {
-            selectedLocations = forwardLocations;
-            movementType = 'forward';
-        } else if (random < normalizedProb.forward + normalizedProb.lateral && lateralLocations.length > 0) {
-            selectedLocations = lateralLocations;
-            movementType = 'lateral';
-        } else if (backwardLocations.length > 0) {
-            selectedLocations = backwardLocations;
-            movementType = 'backward';
-        } else {
-            // 回退到可用的方向
-            if (forwardLocations.length > 0) {
-                selectedLocations = forwardLocations;
-                movementType = 'forward (fallback)';
-            } else if (lateralLocations.length > 0) {
-                selectedLocations = lateralLocations;
-                movementType = 'lateral (fallback)';
-            } else if (backwardLocations.length > 0) {
-                selectedLocations = backwardLocations;
-                movementType = 'backward (fallback)';
-            } else {
-                this.debugLog(`Trump has no valid path from ${currentLoc}`);
-                return;
-            }
-        }
-        
-        // 从选中的方向中随机选择一个位置
-        const nextLocation = selectedLocations[Math.floor(Math.random() * selectedLocations.length)];
-        
-        this.debugLog(`Trump moved [${movementType}]: ${currentLoc} (depth ${currentDepth}) -> ${nextLocation} (depth ${this.trumpLocationDepth[nextLocation]})`);
-        
-        this.trump.currentLocation = nextLocation;
-        
-        // 播放移动音效
-        this.game.assets.playSound('blip', false, 0.5);
-        
-        // 如果摄像头打开且没有故障，播放动画
-        if (this.game.state.cameraOpen && !this.game.state.cameraFailed) {
-            this.game.camera.playMovementTransition();
-        }
-        
-        // 更新摄像头显示
-        this.queueCameraDisplayUpdate();
-    }
-    
-    // Trump开始爬行进入办公室
-    startTrumpCrawling(fromLocation) {
-        const config = this.currentTrumpConfig.ventCrawling;
-        
-        this.trump.isCrawling = true;
-        this.trump.crawlingFrom = fromLocation; // 记录从哪里开始爬行
-        this.trump.currentLocation = 'crawling'; // 标记为爬行状态
-        
-        this.debugLog(`Trump is crawling from ${fromLocation}...`);
-        this.debugLog(`Crawling config: soundDelay=${config.soundDelay}ms, soundDuration=${config.soundDuration}ms, totalDuration=${config.totalDuration}ms`);
-        
-        // 更新摄像头显示（Trump消失）
-        this.queueCameraDisplayUpdate();
-        
-        // 根据配置延迟后开始播放爬行音效
-        this.trump.crawlingSoundTimer = this.setTrackedTimeout(() => {
-            // 检查Trump是否还在爬行（可能已经被阻止）
-            if (this.trump.isCrawling && this.trump.currentLocation === 'crawling') {
-                this.debugLog('Playing crawling sound...');
-                this.game.assets.playSound('ventCrawling', true, 0.8);
-
-                // 根据配置持续时长后停止爬行音效
-                this.trump.crawlingStopSoundTimer = this.setTrackedTimeout(() => {
-                    if (this.trump.isCrawling && this.trump.currentLocation === 'crawling') {
-                        this.debugLog('Stopping crawling sound...');
-                        this.game.assets.stopSound('ventCrawling');
-                    }
-                    this.trump.crawlingStopSoundTimer = null;
-                }, config.soundDuration);
-
-                this.trump.crawlingSoundTimer = null;
-            }
-        }, config.soundDelay);
-
-        // 根据配置总时长后到达办公室并触发跳杀
-        this.trump.crawlingTimer = this.setTrackedTimeout(() => {
-            this.debugLog('Trump reached the office!');
-            this.trump.currentLocation = 'office';
-            this.trump.isCrawling = false;
-            this.trump.crawlingFrom = null;
-            
-            // 停止爬行音效（如果还在播放）
-            this.game.assets.stopSound('ventCrawling');
-            
-            // 触发跳杀
-            this.triggerJumpscare('trump');
-        }, config.totalDuration);
-    }
-    
-    // 阻止Trump爬行（玩家关闭通风口）
-    stopTrumpCrawling() {
-        if (!this.trump.isCrawling) {
-            return false;
-        }
-        
-        const config = this.currentTrumpConfig.ventCrawling;
-        
-        this.debugLog('Trump crawling blocked by closed vents!');
-        
-        // 清除爬行计时器
-        if (this.trump.crawlingTimer) {
-            clearTimeout(this.trump.crawlingTimer);
-            this.trump.crawlingTimer = null;
-        }
-        
-        // 停止爬行音效
-        this.game.assets.stopSound('ventCrawling');
-        
-        // Trump被阻止，立即判定离开
-        this.trump.isCrawling = false;
-        
-        // 找出所有步长为3的位置
-        const depth3Locations = Object.keys(this.trumpLocationDepth).filter(loc => 
-            this.trumpLocationDepth[loc] === 3 && loc !== 'office'
-        );
-        
-        // 如果没有步长为3的位置，使用EP的步长3位置
-        let retreatLocation;
-        if (depth3Locations.length > 0) {
-            // 随机选择一个步长为3的位置
-            retreatLocation = depth3Locations[Math.floor(Math.random() * depth3Locations.length)];
-        } else {
-            // 使用EP的步长配置中的步长3位置
-            const epDepth3Locations = Object.keys(this.locationDepth).filter(loc => 
-                this.locationDepth[loc] === 3 && loc !== 'office'
-            );
-            retreatLocation = epDepth3Locations[Math.floor(Math.random() * epDepth3Locations.length)];
-        }
-        
-        this.debugLog(`Trump will retreat to ${retreatLocation} (depth 3)`);
-        
-        // 立即移动到撤退位置
-        this.trump.currentLocation = retreatLocation;
-        this.trump.crawlingFrom = null;
-        
-        // 更新摄像头显示
-        this.queueCameraDisplayUpdate();
-        
-        // 根据配置延迟后播放撤退音效
-        this.trump.retreatSoundTimer = this.setTrackedTimeout(() => {
-            this.debugLog('Playing retreat crawling sound...');
-            this.game.assets.playSound('ventCrawling', false, 0.8);
-
-            // 根据配置持续时长后停止音效
-            this.trump.retreatStopSoundTimer = this.setTrackedTimeout(() => {
-                this.game.assets.stopSound('ventCrawling');
-                this.trump.retreatStopSoundTimer = null;
-            }, config.retreatSoundDuration);
-
-            this.trump.retreatSoundTimer = null;
-        }, config.retreatDelay);
-        
-        return true;
-    }
-    
-    // 检查通风口状态变化（从Game.js调用）
-    onVentsChanged(ventsClosed) {
-        // 如果Trump正在爬行且玩家关闭了通风口，阻止Trump
-        if (this.trump.isCrawling && ventsClosed) {
-            this.stopTrumpCrawling();
-        }
-    }
-    
-    // 使用sound吸引敌人（从CameraSystem调用）
-    attractToSound(soundLocation) {
-        let epAttracted = false;
-        let trumpAttracted = false;
-        
-        // 尝试吸引EP
-        const epCurrentLoc = this.epstein.currentLocation;
-        const adjacentToEp = this.adjacentRooms[epCurrentLoc];
-        
-        if (this.epstein.hasSpawned && adjacentToEp && adjacentToEp.includes(soundLocation)) {
-            // 根据配置检查是否抵抗sound吸引
-            const resistance = this.currentEpsteinConfig.soundLureResistance;
-            if (resistance > 0) {
-                const failChance = Math.random();
-                if (failChance < resistance) {
-                    this.debugLog(`Epstein resisted the sound lure! (${resistance * 100}% chance on Night ${this.game.state.currentNight})`);
-                    // 吸引失败，但仍然播放音效让玩家以为成功了
-                    this.game.assets.playSound('blip', false, 0.5);
-                    return false; // 返回false表示没有真正吸引到
-                }
-            }
-            
-            // 吸引成功，EP移动到sound位置（可以前进或后退）
-            const currentDepth = this.locationDepth[epCurrentLoc];
-            const soundDepth = this.locationDepth[soundLocation];
-            this.debugLog(`Epstein attracted by sound: ${epCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
-            
-            this.epstein.currentLocation = soundLocation;
-            
-            // 播放移动音效
-            this.game.assets.playSound('blip', false, 0.5);
-            
-            // 如果到达办公室，触发游戏结束
-            if (soundLocation === 'office') {
-                this.triggerJumpscare('epstein');
-            }
-            
-            epAttracted = true;
-        } else {
-            this.debugLog(`Sound at ${soundLocation} is not adjacent to Epstein at ${epCurrentLoc}`);
-        }
-        
-        // 尝试吸引Trump（如果已出场且不在爬行状态）
-        const trumpCurrentLoc = this.trump.currentLocation;
-        const adjacentToTrump = this.adjacentRooms[trumpCurrentLoc];
-        
-        if (this.trump.hasSpawned && !this.trump.isCrawling && adjacentToTrump && adjacentToTrump.includes(soundLocation)) {
-            // 吸引成功，Trump移动到sound位置（可以前进或后退）
-            const currentDepth = this.trumpLocationDepth[trumpCurrentLoc];
-            const soundDepth = this.trumpLocationDepth[soundLocation];
-            this.debugLog(`Trump attracted by sound: ${trumpCurrentLoc} (depth ${currentDepth}) -> ${soundLocation} (depth ${soundDepth})`);
-            
-            this.trump.currentLocation = soundLocation;
-            
-            // 播放移动音效（如果EP没有播放）
-            if (!epAttracted) {
-                this.game.assets.playSound('blip', false, 0.5);
-            }
-            
-            // 如果到达办公室，触发游戏结束
-            if (soundLocation === 'office') {
-                this.triggerJumpscare('trump');
-            }
-            
-            trumpAttracted = true;
-        } else if (this.trump.hasSpawned && !this.trump.isCrawling) {
-            this.debugLog(`Sound at ${soundLocation} is not adjacent to Trump at ${trumpCurrentLoc}`);
-        }
-        
-        // 注意：不在这里更新显示，由CameraSystem的动画处理
-        
-        return epAttracted || trumpAttracted;
-    }
-    
-    // 触发摄像头故障
-    triggerCameraFailure() {
-        this.debugLog('Camera system failure!');
-        this.game.state.cameraFailed = true;
-        
-        // 播放静态噪音
-        this.game.assets.playSound('static', true, 1.0);
-        
-        // 如果摄像头打开，立即显示故障效果
-        if (this.game.state.cameraOpen) {
-            this.game.camera.showCameraFailure();
-        }
-        // 如果摄像头没打开，下次打开时会自动显示故障效果（在open()方法中）
-    }
-
-    // 更新摄像头显示
-    updateCameraDisplay() {
-        // 直接调用 CameraSystem 的显示方法
-        if (this.game.camera) {
-            this.game.camera.updateCharacterDisplay();
-        }
-    }
-
-    // 触发跳杀
-    triggerJumpscare(enemy = 'epstein') {
-        this.debugLog(`JUMPSCARE by ${enemy}!`);
-        this.stop();
-        
-        // 霍金的特殊跳杀动画
-        if (enemy === 'hawking') {
-            this.triggerHawkingMissileJumpscare();
-            return;
-        }
-        
-        // 停止所有音效
-        this.game.assets.stopSound('vents');
-        this.game.assets.stopSound('static');
-        
-        // 创建跳杀动画容器
-        const jumpscareContainer = document.createElement('div');
-        jumpscareContainer.id = 'jumpscare-container';
-        jumpscareContainer.style.position = 'fixed';
-        jumpscareContainer.style.top = '0';
-        jumpscareContainer.style.left = '0';
-        jumpscareContainer.style.width = '100%';
-        jumpscareContainer.style.height = '100%';
-        jumpscareContainer.style.display = 'flex';
-        jumpscareContainer.style.alignItems = 'center';
-        jumpscareContainer.style.justifyContent = 'center';
-        jumpscareContainer.style.zIndex = '99999';
-        jumpscareContainer.style.overflow = 'hidden';
-        
-        // 创建办公室背景
-        const officeBackground = document.createElement('img');
-        officeBackground.src = this.game.assets.images.office.src;
-        officeBackground.style.position = 'absolute';
-        officeBackground.style.top = '0';
-        officeBackground.style.left = '0';
-        officeBackground.style.width = '100%';
-        officeBackground.style.height = '100%';
-        officeBackground.style.objectFit = 'cover';
-        officeBackground.style.zIndex = '1';
-        
-        // 创建跳杀图片（居中显示）
-        const jumpscareImg = document.createElement('img');
-        // 根据敌人选择跳杀图片
-        if (enemy === 'trump') {
-            jumpscareImg.src = this.game.assets.images.trumpJumpscare?.src || this.game.assets.images.jumpscare.src;
-        } else if (enemy === 'hawking') {
-            jumpscareImg.src = this.game.assets.images.hawkingJumpscare?.src || this.game.assets.images.jumpscare.src;
-        } else {
-            jumpscareImg.src = this.game.assets.images.jumpscare.src;
-        }
-        jumpscareImg.style.position = 'absolute';
-        jumpscareImg.style.top = '50%';
-        jumpscareImg.style.left = '50%';
-        jumpscareImg.style.transform = 'translate(-50%, -50%) scale(0.25)';
-        jumpscareImg.style.transformOrigin = 'center center';
-        jumpscareImg.style.width = '100%'; // Keep dimensions stable; animate transform only
-        jumpscareImg.style.height = 'auto';
-        jumpscareImg.style.zIndex = '2';
-        jumpscareImg.style.transition = 'transform 150ms linear';
-        jumpscareImg.style.willChange = 'transform, opacity';
-        
-        jumpscareContainer.appendChild(officeBackground);
-        jumpscareContainer.appendChild(jumpscareImg);
-        document.body.appendChild(jumpscareContainer);
-        
-        // 播放跳杀音效
-        if (enemy === 'hawking') {
-            this.game.assets.playSound('hawkingJumpscare', false, 1.0);
-        } else {
-            this.game.assets.playSound('jumpscare', false, 1.0);
-        }
-        
-        // 第1帧：25% (立即显示)
-        // 已经设置
-        
-        // 第2帧：50% (0.15秒后)
+        // 触发淡入效果
         setTimeout(() => {
-            jumpscareImg.style.width = '50%';
-        }, 150);
+            cutscene.classList.add('fade-in');
+        }, 50);
         
-        // 第3帧：100% (0.3秒后)
-        setTimeout(() => {
-            jumpscareImg.style.width = '100%';
-        }, 300);
+        let cutsceneEnded = false;
         
-        // 1.5秒后淡出并显示游戏结束画面
-        setTimeout(() => {
-            jumpscareContainer.style.transition = 'opacity 0.5s';
-            jumpscareContainer.style.opacity = '0';
+        const endCutscene = () => {
+            if (cutsceneEnded) return;
+            cutsceneEnded = true;
             
+            // 淡出效果
+            cutscene.classList.remove('fade-in');
+            cutscene.classList.add('fade-out');
+            
+            // 等待淡出完成后隐藏并开始游戏
             setTimeout(() => {
-                document.body.removeChild(jumpscareContainer);
-                this.game.gameOver('GAME OVER');
-            }, 500);
-        }, 1500);
+                cutscene.classList.add('hidden');
+                cutscene.classList.remove('fade-out');
+                // 不在这里显示游戏画面，让initGame处理
+                this.initGame();
+            }, 3000);
+            
+            cutscene.removeEventListener('click', endCutscene);
+            if (autoEndTimeout) clearTimeout(autoEndTimeout);
+        };
+        
+        // 点击跳过
+        cutscene.addEventListener('click', endCutscene);
+        
+        // 3秒后自动开始淡出（总共6秒：3秒淡入 + 3秒淡出）
+        const autoEndTimeout = setTimeout(() => {
+            endCutscene();
+        }, 3000);
+    }
+    
+    async initGame() {
+        // console.log('🎮 initGame called, currentNight:', this.state.currentNight);
+        
+        if (!this.assets.loaded) {
+            await this.assets.loadAssets();
+        }
+        
+        this.state.reset();
+        
+        // console.log('🎮 After state.reset(), currentNight:', this.state.currentNight);
+        
+        // 重置摄像头系统的sound按钮计数
+        this.camera.resetSoundButtonCount();
+        
+        // 恢复摄像头面板的display（之前可能被强制隐藏）
+        const cameraPanel = document.getElementById('camera-panel');
+        if (cameraPanel) {
+            cameraPanel.style.display = ''; // 恢复默认
+            // console.log('🎮 Camera panel display restored');
+        }
+        
+        // 显示每晚开始场景（在显示游戏画面之前）
+        await this.showNightIntro();
+        
+        // console.log('🎮 After showNightIntro(), currentNight:', this.state.currentNight);
+        
+        // 进场动画结束后才显示游戏画面
+        this.gameScreen.classList.add('active');
+        
+        this.ui.currentSceneImg.src = this.assets.images.office.src;
+        this.ui.currentSceneImg.style.display = 'block';
+        this.viewPosition = 0.25;
+        this.ui.updateViewPosition(this.viewPosition);
+        
+        this.ui.update();
+        this.ui.createHotspots();
+        
+        // 初始化风扇状态（通风口默认打开，风扇快速旋转）
+        this.initVentFanAnimation();
+        
+        this.startGameLoop();
+        this.startViewRotation();
+        
+        // Start enemy AI
+        this.enemyAI.start();
+        
+        this.assets.playSound('vents', true);
+        
+        // Show tutorial
+        if (this.state.currentNight === 1) {
+            this.showTutorial('night1');
+        } else if (this.state.currentNight === 2) {
+            this.showTutorial('night2');
+        } else if (this.state.currentNight === 3) {
+            this.showTutorial('night3');
+        }
+        
+        // console.log('🎮 Before Golden check, currentNight:', this.state.currentNight);
+        
+        // Night 5: 必定触发 Golden 霍金彩蛋（放在最后，确保游戏已完全初始化）
+        if (this.state.currentNight === 5) {
+            // console.log('🌟 Night 5 detected, triggering Golden Stephen...');
+            setTimeout(() => {
+                this.showGoldenStephen();
+            }, 1000); // 进入游戏1秒后触发
+        } // else {
+            // console.log('❌ Not Night 5, currentNight is:', this.state.currentNight);
+        // }
+    }
+    
+    // 初始化风扇动画状态
+    initVentFanAnimation() {
+        const ventIcon = document.querySelector('.vent-icon');
+        if (ventIcon) {
+            if (this.state.ventsClosed) {
+                // 通风口关闭，风扇停止
+                ventIcon.classList.add('stopped');
+                ventIcon.style.animation = 'none';
+            } else {
+                // 通风口打开，风扇快速旋转
+                ventIcon.classList.remove('stopped', 'slowing', 'speeding-up');
+                ventIcon.style.animation = 'spin-fast 0.333s linear infinite';
+            }
+        }
+    }
+    
+    showTutorial(type = 'night1') {
+        const tutorialContent = document.getElementById('tutorial-content');
+        if (!tutorialContent) return;
+        
+        if (type === 'night2') {
+            // Night 2 教程：Trump
+            tutorialContent.innerHTML = `
+                <h2>DEFEND YOURSELF AGAINST TRUMP</h2>
+                <p>
+                    TRUMP WILL TRY TO ATTACK YOU THROUGH THE VENTS IN CAM 1 AND CAM 2, SO IF YOU HEAR BANGING IN THE VENTS HEAD OVER TO THE CONTROL PANEL AND CLOSE THEM. 
+                    AFTER CLOSING THEM YOU WILL HEAR BANGING AGAIN AFTER A FEW SECONDS WHICH MEANS HE LEFT THE VENTS. YOU MUST OPEN THE VENTS OTHERWISE YOU WILL DIE FROM LACK OF OXYGEN. 
+                    TRUMP CAN BE LURED WITH THE AUDIOS BUT YOUR MAIN PRIORITY WITH THE AUDIO LURES SHOULD BE EPSTEIN.
+                </p>
+                <button id="tutorial-got-it">GOT IT</button>
+            `;
+            // 重新绑定按钮事件
+            const gotItBtn = document.getElementById('tutorial-got-it');
+            if (gotItBtn) {
+                gotItBtn.addEventListener('click', () => this.closeTutorial());
+            }
+        } else if (type === 'night3') {
+            // Night 3 教程：霍金
+            tutorialContent.innerHTML = `
+                <h2>DEFEND YOURSELF AGAINST STEPHEN HAWKING</h2>
+                <p>
+                    STEPHEN HAWKING ALWAYS STAYS AT CAM 6 AND HE IS NOT AFFECTED BY THE AUDIO LURES. 
+                    ELECTROCUTE STEPHEN HAWKING EVERY ONCE IN A WHILE TO PREVENT HIM FROM LEAVING CAM 6.
+                </p>
+                <button id="tutorial-got-it">GOT IT</button>
+            `;
+            // 重新绑定按钮事件
+            const gotItBtn = document.getElementById('tutorial-got-it');
+            if (gotItBtn) {
+                gotItBtn.addEventListener('click', () => this.closeTutorial());
+            }
+        } else {
+            // Night 1 教程：EP
+            tutorialContent.innerHTML = `
+                <h2>DEFEND YOURSELF AGAINST EPSTEIN</h2>
+                <p>
+                    EPSTEIN ALWAYS STARTS AT CAM 11. USE THE CAMERA'S AUDIO LURE TO KEEP EPSTEIN FAR AWAY FROM YOU. 
+                    MAKE SURE THE CAMERA YOU'RE PLAYING THE SOUND IN IS NEXT TO THE CAMERA WHERE EPSTEIN IS. 
+                    PLAYING SOUND IN ONLY ONE SPOT WILL NOT WORK IF YOU DO IT TWICE OR MORE IN A ROW. 
+                    USING THE AUDIO LURE TOO MUCH WILL LEAD TO THE CAMERAS BREAKING. 
+                    TO FIX THEM HEAD TO THE CONTROL PANEL AND RESTART THE CAMERAS LIKE YOU JUST DID. 
+                    EPSTEIN DOES NOT ATTACK THROUGH THE VENTS SO DON'T BOTHER CLOSING THEM FOR THIS NIGHT.
+                </p>
+                <button id="tutorial-got-it">GOT IT</button>
+            `;
+            // 重新绑定按钮事件
+            const gotItBtn = document.getElementById('tutorial-got-it');
+            if (gotItBtn) {
+                gotItBtn.addEventListener('click', () => this.closeTutorial());
+            }
+        }
+        
+        this.tutorialOverlay.classList.remove('hidden');
+        // Mark tutorial as active (but don't pause game, allow view rotation)
+        this.state.tutorialActive = true;
+    }
+    
+    closeTutorial() {
+        this.tutorialOverlay.classList.add('hidden');
+        // Close tutorial
+        this.state.tutorialActive = false;
+    }
+    
+    // Golden 霍金彩蛋效果
+    showGoldenStephen() {
+        console.log('🌟 Golden Stephen Hawking appears!');
+        
+        // 创建全屏金色霍金图层
+        const goldenOverlay = document.createElement('div');
+        goldenOverlay.id = 'golden-stephen-overlay';
+        goldenOverlay.style.position = 'fixed';
+        goldenOverlay.style.top = '0';
+        goldenOverlay.style.left = '0';
+        goldenOverlay.style.width = '100%';
+        goldenOverlay.style.height = '100%';
+        goldenOverlay.style.zIndex = '9999';
+        goldenOverlay.style.pointerEvents = 'none';
+        goldenOverlay.style.background = 'rgba(0, 0, 0, 0.3)';
+        
+        // 创建金色霍金图片
+        const goldenImg = document.createElement('img');
+        goldenImg.src = '/FNAE-HTML5-1.1.5/assets/images/goldenstephen.png';
+        goldenImg.style.position = 'absolute';
+        goldenImg.style.top = '50%';
+        goldenImg.style.left = '50%';
+        goldenImg.style.transform = 'translate(-50%, -50%)';
+        goldenImg.style.width = '80%';
+        goldenImg.style.height = '80%';
+        goldenImg.style.objectFit = 'contain';
+        goldenImg.style.opacity = '0';
+        goldenImg.style.animation = 'golden-flicker 2s ease-in-out';
+        
+        goldenOverlay.appendChild(goldenImg);
+        document.body.appendChild(goldenOverlay);
+        
+        // 播放音效
+        this.assets.playSound('goldenstephenscare', false, 1.0);
+        
+        // 2秒后移除
+        setTimeout(() => {
+            goldenOverlay.remove();
+        }, 2000);
+    }
+    
+    showNightIntro() {
+        return new Promise((resolve) => {
+            const nightIntro = document.getElementById('night-intro');
+            const nightIntroText = document.getElementById('night-intro-text');
+            
+            // Update night number text
+            nightIntroText.textContent = `NIGHT ${this.state.currentNight}`;
+            
+            // Show scene
+            nightIntro.classList.remove('hidden');
+            
+            // Fade in effect (1.5s)
+            setTimeout(() => {
+                nightIntro.classList.add('fade-in');
+            }, 50);
+            
+            // 1.5s fade in + 2s display then start fade out
+            setTimeout(() => {
+                nightIntro.classList.remove('fade-in');
+                nightIntro.classList.add('fade-out');
+                
+                // After 1.5s fade out complete, hide and continue game
+                setTimeout(() => {
+                    nightIntro.classList.add('hidden');
+                    nightIntro.classList.remove('fade-out');
+                    resolve();
+                }, 1500);
+            }, 3500); // 1500ms fade in + 2000ms display
+        });
+    }
+    
+    startViewRotation() {
+        const rotationLoop = () => {
+            if (!this.state.isGameRunning) return;
+            
+            // If control panel or camera is open, disable rotation
+            if (!this.state.controlPanelOpen && !this.state.cameraOpen) {
+                if (this.isRotatingLeft && this.viewPosition > 0) {
+                    this.viewPosition -= this.rotationSpeed;
+                    this.viewPosition = Math.max(0, this.viewPosition);
+                    this.ui.updateViewPosition(this.viewPosition);
+                }
+                
+                if (this.isRotatingRight && this.viewPosition < 1) {
+                    this.viewPosition += this.rotationSpeed;
+                    this.viewPosition = Math.min(1, this.viewPosition);
+                    this.ui.updateViewPosition(this.viewPosition);
+                }
+            }
+            
+            requestAnimationFrame(rotationLoop);
+        };
+        
+        rotationLoop();
     }
 
-    // 获取当前位置
-    getCurrentLocation() {
-        return this.epstein.currentLocation;
-    }
-    
-    // 获取当前EP的图片（根据夜数选择是否带电眼）
-    getCurrentImage(cam, night) {
-        if (night === 6 && this.characterImagesNight6[cam]) {
-            return this.characterImagesNight6[cam];
-        }
-        return this.characterImages[cam];
-    }
-    
-    // 获取Trump当前位置
-    getTrumpCurrentLocation() {
-        return this.trump.currentLocation;
-    }
-    
-    // 检查Trump是否正在爬行
-    isTrumpCrawling() {
-        return this.trump.isCrawling;
+    startGameLoop() {
+        this.timeInterval = setInterval(() => {
+            this.state.currentTime += 1;
+            this.ui.update();
+            
+            if (this.state.currentTime >= 6) {
+                this.winNight();
+            }
+        }, 60000);
+        
+        this.powerInterval = setInterval(() => {
+            this.updatePower();
+        }, 1000);
     }
 
-    // 重置AI
-    reset() {
-        this.stop();
-        
-        // 重置 Epstein
-        this.epstein.currentLocation = 'cam11';
-        this.epstein.aiLevel = 0;
-        this.epstein.hasMovedOnce = false;
-        this.epstein.hasSpawned = false;
-        this.epstein.night4AggressiveMode = false; // 重置Night 4激进模式标志
-        this.epstein.spawnTimer = null;
-        if (this.epstein.timer) {
-            clearTimeout(this.epstein.timer);
-            this.epstein.timer = null;
+    updatePower() {
+        if (this.state.ventsClosed) {
+            // When vents closed, oxygen decreases (faster speed)
+            this.state.oxygen -= 1.5;
+        } else {
+            // When vents open, oxygen quickly recovers to 100%
+            if (this.state.oxygen < 100) {
+                this.state.oxygen += 2;
+            }
         }
         
-        // 重置 Trump
-        this.trump.currentLocation = 'cam10';
-        this.trump.aiLevel = 0;
-        this.trump.hasSpawned = false;
-        this.trump.isCrawling = false;
-        this.trump.crawlingFrom = null;
-        this.trump.night5AggressiveMode = false; // 重置Night 5激进模式标志
-        this.trump.spawnTimer = null;
-        this.trump.crawlingSoundTimer = null;
-        this.trump.crawlingStopSoundTimer = null;
-        this.trump.retreatSoundTimer = null;
-        this.trump.retreatStopSoundTimer = null;
-        if (this.trump.timer) {
-            clearTimeout(this.trump.timer);
-            this.trump.timer = null;
-        }
-        if (this.trump.crawlingTimer) {
-            clearTimeout(this.trump.crawlingTimer);
-            this.trump.crawlingTimer = null;
-        }
-        if (this.trump.retreatTimer) {
-            clearTimeout(this.trump.retreatTimer);
-            this.trump.retreatTimer = null;
+        this.state.oxygen = Math.max(0, Math.min(100, this.state.oxygen));
+        
+        if (this.state.oxygen <= 0) {
+            this.oxygenOut();
         }
         
-        // 重置 Hawking
-        this.hawking.active = false;
-        this.hawking.warningLevel = 0;
-        if (this.hawking.timer) {
-            clearTimeout(this.hawking.timer);
-            this.hawking.timer = null;
-        }
-        if (this.hawking.warningTimer) {
-            clearTimeout(this.hawking.warningTimer);
-            this.hawking.warningTimer = null;
-        }
-        if (this.hawking.attackTimer) {
-            clearTimeout(this.hawking.attackTimer);
-            this.hawking.attackTimer = null;
-        }
-        this.hideHawkingWarning();
+        this.ui.update();
+    }
+
+    toggleVents() {
+        console.log('toggleVents called, controlPanelBusy:', this.state.controlPanelBusy);
         
-        // 清除所有角色显示
+        // 如果控制面板正忙，不允许操作
+        if (this.state.controlPanelBusy) {
+            console.log('Control panel is busy, please wait...');
+            return;
+        }
+        
+        // 标记控制面板为忙碌状态
+        this.state.controlPanelBusy = true;
+        this.state.ventsToggling = true;
+        console.log('Starting vent toggle animation...');
+        
+        // 播放心电图音效
+        this.assets.playSound('ekg', false, 0.8);
+        
+        // 获取风扇图标
+        const ventIcon = document.querySelector('.vent-icon');
+        
+        if (this.state.ventsClosed) {
+            // 当前关闭，要打开 -> 风扇从停止加速到快速
+            console.log('Opening vents: fan speeding up');
+            if (ventIcon) {
+                ventIcon.classList.remove('stopped', 'slowing');
+                ventIcon.classList.add('speeding-up');
+                
+                // 逐步加速动画
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-slow 2s linear infinite';
+                }, 0);
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
+                }, 1000);
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-fast 0.333s linear infinite';
+                    ventIcon.classList.remove('speeding-up');
+                }, 2000);
+            }
+        } else {
+            // 当前打开，要关闭 -> 风扇从快速减速到停止
+            console.log('Closing vents: fan slowing down');
+            if (ventIcon) {
+                ventIcon.classList.remove('speeding-up');
+                ventIcon.classList.add('slowing');
+                
+                // 逐步减速动画
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
+                }, 0);
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-slow 2s linear infinite';
+                }, 1000);
+                setTimeout(() => {
+                    ventIcon.style.animation = 'spin-slow 3s linear infinite';
+                }, 2000);
+                setTimeout(() => {
+                    ventIcon.style.animation = 'none';
+                    ventIcon.classList.remove('slowing');
+                    ventIcon.classList.add('stopped');
+                }, 3000);
+            }
+        }
+        
+        // 更新UI显示点动画
+        this.ui.updateVentsStatus();
+        
+        // 启动定时更新（每100ms更新一次UI）
+        const updateInterval = setInterval(() => {
+            this.ui.updateVentsStatus();
+            if (!this.state.ventsToggling) {
+                clearInterval(updateInterval);
+            }
+        }, 100);
+        
+        // 4秒后完成切换
+        setTimeout(() => {
+            this.state.ventsClosed = !this.state.ventsClosed;
+            console.log('Vents:', this.state.ventsClosed ? 'closed' : 'open');
+            
+            // 通知 EnemyAI 通风口状态变化
+            this.enemyAI.onVentsChanged(this.state.ventsClosed);
+            
+            // 解除锁定
+            this.state.ventsToggling = false;
+            this.state.controlPanelBusy = false;
+            console.log('Vent toggle completed');
+            
+            // 更新UI和控制面板选项文本
+            this.ui.update();
+            this.ui.updateVentsStatus();
+            this.ui.updateControlPanelOptions();
+        }, 4000);
+    }
+
+    toggleCamera() {
+        // console.log('🎮 Game.toggleCamera() called');
+        // console.log('🎮 Current state - cameraOpen:', this.state.cameraOpen, 'tutorialActive:', this.state.tutorialActive);
+        this.camera.toggle();
+    }
+
+    oxygenOut() {
+        this.stopGame();
+        this.assets.stopSound('ambient');
+        // Oxygen depleted triggers jumpscare
+        this.enemyAI.triggerJumpscare();
+    }
+    
+    gameOver(message) {
+        this.stopGame();
+        this.assets.stopSound('ambient');
+        
+        // 立即隐藏游戏画面
+        this.gameScreen.classList.remove('active');
+        
+        // 关闭摄像头面板
+        if (this.state.cameraOpen) {
+            this.camera.close();
+        }
+        
+        // 隐藏摄像头面板
+        const cameraPanel = document.getElementById('camera-panel');
+        if (cameraPanel) {
+            cameraPanel.classList.add('hidden');
+            cameraPanel.classList.remove('show');
+        }
+        
+        // 清理角色图层
         const characterOverlay = document.getElementById('character-overlay');
         if (characterOverlay) {
             characterOverlay.innerHTML = '';
         }
         
-        this.debugLog('EnemyAI reset complete');
+        // 隐藏控制面板
+        const controlPanel = document.getElementById('control-panel');
+        if (controlPanel) {
+            controlPanel.classList.add('hidden');
+        }
+        
+        this.gameOverScreen(message);
     }
-    
-    // 启动霍金机制
-    startHawking() {
-        if (this.hawking.timer) {
-            clearTimeout(this.hawking.timer);
-            this.hawking.timer = null;
-        }
-        if (this.hawking.warningTimer) {
-            clearTimeout(this.hawking.warningTimer);
-            this.hawking.warningTimer = null;
-        }
 
-        this.hawking.active = true;
-        this.hawking.warningLevel = 0;
-        this.debugLog('Hawking started at cam6');
+    winNight() {
+        this.stopGame();
+        this.assets.stopSound('ambient');
         
-        // 20秒后开始黄色警告
-        this.hawking.timer = setTimeout(() => {
-            this.showHawkingWarning('yellow');
-        }, 20000);
-    }
-    
-    // 显示霍金警告
-    showHawkingWarning(level) {
-        if (!this.hawking.active) return;
-        
-        this.debugLog(`Hawking warning: ${level}`);
-        
-        if (level === 'yellow') {
-            this.hawking.warningLevel = 1;
-            this.updateHawkingWarningDisplay();
-            
-            // 5秒后升级为红色警告
-            this.hawking.warningTimer = setTimeout(() => {
-                this.showHawkingWarning('red');
-            }, 5000);
-        } else if (level === 'red') {
-            this.hawking.warningLevel = 2;
-            this.updateHawkingWarningDisplay();
-            
-            // 5秒后摄像头坏掉
-            this.hawking.warningTimer = setTimeout(() => {
-                this.hawkingBreakCamera();
-            }, 5000);
-        }
-    }
-    
-    // 更新霍金警告显示
-    updateHawkingWarningDisplay() {
-        let warningIcon = this.getCachedElement('hawking-warning-icon');
-        
-        if (!warningIcon) {
-            warningIcon = document.createElement('img');
-            warningIcon.id = 'hawking-warning-icon';
-            warningIcon.style.position = 'absolute';
-            warningIcon.style.zIndex = '1000';
-            warningIcon.style.display = 'block';
-            warningIcon.style.animation = 'flash 0.5s infinite';
-            
-            // 根据摄像头状态决定添加到哪里
-            if (this.game.state.cameraOpen) {
-                const cameraGrid = document.getElementById('camera-grid');
-                if (cameraGrid) {
-                    cameraGrid.appendChild(warningIcon);
-                }
-            } else {
-                document.body.appendChild(warningIcon);
-            }
+        // 关闭摄像头（如果打开）
+        if (this.state.cameraOpen) {
+            this.camera.close();
         }
         
-        // 根据摄像头状态决定位置和大小
-        if (this.game.state.cameraOpen) {
-            // 摄像头打开：在地图上 cam6 右边，使用相对于地图的百分比定位
-            // cam6 位置: x: 77.2%, y: 82.2%, width: 13.0%, height: 8.0%
-            // 警告图标放在 cam6 右边
-            warningIcon.style.position = 'absolute';
-            warningIcon.style.left = '91%'; // 77.2% + 13.0% + 小间距
-            warningIcon.style.top = '82.2%';
-            warningIcon.style.width = '11.2%'; // 8% * 1.4 = 11.2%
-            warningIcon.style.height = 'auto';
-            warningIcon.style.transform = 'none';
-            
-            // 确保在地图容器中
-            const cameraGrid = document.getElementById('camera-grid');
-            if (cameraGrid && warningIcon.parentElement !== cameraGrid) {
-                cameraGrid.appendChild(warningIcon);
-            }
+        // 强制隐藏摄像头面板，防止闪现
+        const cameraPanel = document.getElementById('camera-panel');
+        if (cameraPanel) {
+            cameraPanel.classList.add('hidden');
+            cameraPanel.classList.remove('show', 'closing');
+            cameraPanel.style.display = 'none'; // 强制隐藏
+        }
+        
+        // 立即隐藏游戏画面，防止闪烁
+        this.gameScreen.classList.remove('active');
+        
+        // 如果是 Night 6，播放特殊的胜利动画并标记完成
+        if (this.state.currentNight === 6) {
+            localStorage.setItem('night6Completed', 'true');
+            this.playNight6VictoryAnimation();
+        } else if (this.state.currentNight === 5) {
+            // Night 5，播放特殊的胜利动画
+            this.playNight5VictoryAnimation();
         } else {
-            // 摄像头关闭：在风扇标志（氧气显示）左边，使用 fixed 定位
-            warningIcon.style.position = 'fixed';
-            warningIcon.style.left = 'auto';
-            warningIcon.style.right = 'calc(2vw + 15vw)'; // 氧气显示右边距 + 氧气显示宽度 + 间距
-            warningIcon.style.top = 'auto';
-            warningIcon.style.bottom = '2vh';
-            warningIcon.style.width = '3vw';
-            warningIcon.style.height = 'auto';
-            warningIcon.style.transform = 'none';
-            
-            // 确保在 body 中
-            if (warningIcon.parentElement !== document.body) {
-                document.body.appendChild(warningIcon);
-            }
-        }
-        
-        // 设置警告图片
-        if (this.hawking.warningLevel === 1) {
-            warningIcon.src = '/FNAE-HTML5-1.1.5/assets/images/Warninglight.png';
-        } else if (this.hawking.warningLevel === 2) {
-            warningIcon.src = '/FNAE-HTML5-1.1.5/assets/images/Warningheavy.png';
+            // 其他关卡播放普通的夜晚结束动画
+            this.playNightEndAnimation();
         }
     }
     
-    // 隐藏霍金警告
-    hideHawkingWarning() {
-        const warningIcon = this.getCachedElement('hawking-warning-icon');
-        if (warningIcon) {
-            warningIcon.remove();
-        }
-        delete this._domCache['hawking-warning-icon'];
-    }
-    
-    // 霍金破坏摄像头
-    hawkingBreakCamera() {
-        this.debugLog('Hawking broke the camera!');
+    // Night 5 特殊胜利动画
+    playNight5VictoryAnimation() {
+        // 创建全屏动画容器
+        const animationContainer = document.createElement('div');
+        animationContainer.style.position = 'fixed';
+        animationContainer.style.top = '0';
+        animationContainer.style.left = '0';
+        animationContainer.style.width = '100%';
+        animationContainer.style.height = '100%';
+        animationContainer.style.backgroundColor = '#000';
+        animationContainer.style.display = 'flex';
+        animationContainer.style.alignItems = 'center';
+        animationContainer.style.justifyContent = 'center';
+        animationContainer.style.zIndex = '10000';
+        animationContainer.style.opacity = '0';
+        animationContainer.style.transition = 'opacity 0.5s';
         
-        // 隐藏警告
-        this.hideHawkingWarning();
+        // 创建时间显示
+        const timeDisplay = document.createElement('div');
+        timeDisplay.style.fontSize = '10vw';
+        timeDisplay.style.fontWeight = 'bold';
+        timeDisplay.style.color = '#fff';
+        timeDisplay.style.fontFamily = 'Arial, sans-serif';
+        timeDisplay.textContent = '5:59 AM';
         
-        // 摄像头坏掉
-        this.triggerCameraFailure();
+        animationContainer.appendChild(timeDisplay);
+        document.body.appendChild(animationContainer);
         
-        // 霍金从cam6消失
-        this.hawking.active = false;
-        this.queueCameraDisplayUpdate();
-        
-        // 4秒后跳杀
-        this.hawking.attackTimer = setTimeout(() => {
-            this.triggerJumpscare('hawking');
-        }, 4000);
-    }
-    
-    // 霍金的导弹跳杀动画
-    triggerHawkingMissileJumpscare() {
-        this.debugLog('Hawking missile jumpscare!');
-        
-        // 停止所有音效
-        this.game.assets.stopSound('vents');
-        this.game.assets.stopSound('static');
-        
-        // 创建跳杀动画容器
-        const jumpscareContainer = document.createElement('div');
-        jumpscareContainer.id = 'jumpscare-container';
-        jumpscareContainer.style.position = 'fixed';
-        jumpscareContainer.style.top = '0';
-        jumpscareContainer.style.left = '0';
-        jumpscareContainer.style.width = '100%';
-        jumpscareContainer.style.height = '100%';
-        jumpscareContainer.style.zIndex = '99999';
-        jumpscareContainer.style.overflow = 'hidden';
-        jumpscareContainer.style.backgroundColor = '#000';
-        
-        // 创建办公室背景
-        const officeBackground = document.createElement('img');
-        officeBackground.src = this.game.assets.images.office.src;
-        officeBackground.style.position = 'absolute';
-        officeBackground.style.top = '0';
-        officeBackground.style.left = '0';
-        officeBackground.style.width = '100%';
-        officeBackground.style.height = '100%';
-        officeBackground.style.objectFit = 'cover';
-        officeBackground.style.zIndex = '1';
-        
-        // 创建霍金图片（在房间里）
-        const hawkingImg = document.createElement('img');
-        hawkingImg.src = '/FNAE-HTML5-1.1.5/assets/images/mrstephen.png';
-        hawkingImg.style.position = 'absolute';
-        hawkingImg.style.left = '43.6%';
-        hawkingImg.style.bottom = '27.4%';
-        hawkingImg.style.width = '30%';
-        hawkingImg.style.height = 'auto';
-        hawkingImg.style.zIndex = '2';
-        hawkingImg.style.filter = 'brightness(0.68) contrast(1) saturate(1)';
-        
-        // 创建导弹图片（从霍金位置飞向玩家）
-        const missileImg = document.createElement('img');
-        missileImg.src = '/FNAE-HTML5-1.1.5/assets/images/front.png';
-        missileImg.style.position = 'absolute';
-        missileImg.style.left = '50%';
-        missileImg.style.top = '50%';
-        missileImg.style.width = '80%';
-        missileImg.style.transform = 'translate(-50%, -50%) scale(0.0625)';
-        missileImg.style.height = 'auto';
-        missileImg.style.zIndex = '3';
-        missileImg.style.transition = 'transform 1s ease-out';
-        missileImg.style.willChange = 'transform';
-        
-        // 创建爆炸帧图容器（初始隐藏）
-        const explosionImg = document.createElement('div');
-        explosionImg.style.position = 'absolute';
-        explosionImg.style.top = '50%';
-        explosionImg.style.left = '50%';
-        explosionImg.style.transform = 'translate(-50%, -50%)';
-        explosionImg.style.width = '50vw'; // 容器宽度
-        explosionImg.style.height = '50vh'; // 容器高度
-        explosionImg.style.zIndex = '4';
-        explosionImg.style.backgroundImage = 'url(/FNAE-HTML5-1.1.5/assets/images/exp2.png)';
-        explosionImg.style.backgroundSize = '400% auto'; // 4列，高度自适应
-        explosionImg.style.backgroundRepeat = 'no-repeat';
-        explosionImg.style.backgroundPosition = '0% 0%';
-        explosionImg.style.display = 'none';
-        
-        jumpscareContainer.appendChild(officeBackground);
-        jumpscareContainer.appendChild(hawkingImg);
-        jumpscareContainer.appendChild(missileImg);
-        jumpscareContainer.appendChild(explosionImg);
-        document.body.appendChild(jumpscareContainer);
-        
-        // 播放霍金跳杀音效
-        this.game.assets.playSound('hawkingJumpscare', false, 1.0);
-        
-        // 导弹飞向玩家（放大并移动到中心）
-        this.setTrackedTimeout(() => {
-            missileImg.style.transform = 'translate(-50%, -50%) scale(1)';
+        // 淡入
+        setTimeout(() => {
+            animationContainer.style.opacity = '1';
         }, 50);
         
-        // 1秒后导弹到达，开始爆炸动画
-        this.setTrackedTimeout(() => {
-            missileImg.style.display = 'none';
-            explosionImg.style.display = 'block';
-            
-            // 播放爆炸帧动画（使用第一列的4帧，原图是4列3行）
-            let frame = 0;
-            const totalFrames = 3; // 0-3共4帧
-            const frameInterval = 80; // 每帧80ms
-            
-            // 第一列的4帧对应的Y位置（手动调整后的精确位置）
-            const yPositions = [8.00, 36.50, 65.00, 93.00];
-            
-            let lastFrameTime = 0;
-            let rafId = null;
-
-            const animateExplosion = (timestamp) => {
-                if (!lastFrameTime || timestamp - lastFrameTime >= frameInterval) {
-                    lastFrameTime = timestamp;
-                    explosionImg.style.backgroundPosition = `0% ${yPositions[frame]}%`;
-                    frame++;
-
-                    if (frame > totalFrames) {
-                        rafId = null;
-
-                        // 爆炸动画结束后淡出
-                        this.setTrackedTimeout(() => {
-                            jumpscareContainer.style.transition = 'opacity 0.5s';
-                            jumpscareContainer.style.opacity = '0';
-
-                            this.setTrackedTimeout(() => {
-                                if (jumpscareContainer.isConnected) {
-                                    jumpscareContainer.remove();
-                                }
-                                this.game.gameOver('GAME OVER');
-                            }, 500);
-                        }, 200);
-                        return;
-                    }
-                }
-
-                rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(animateExplosion) : setTimeout(() => animateExplosion(performance.now()), frameInterval);
-            };
-
-            rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(animateExplosion) : setTimeout(() => animateExplosion(performance.now()), frameInterval);
+        // 1秒后变为 6:00 AM 并播放钟声
+        setTimeout(() => {
+            timeDisplay.textContent = '6:00 AM';
+            this.assets.playSound('chimes', false, 1.0);
         }, 1000);
+        
+        // 3秒后淡出时间
+        setTimeout(() => {
+            timeDisplay.style.transition = 'opacity 0.5s';
+            timeDisplay.style.opacity = '0';
+            
+            setTimeout(() => {
+                // 移除时间显示
+                animationContainer.removeChild(timeDisplay);
+                
+                // 创建 "RESCUE ARRIVE" 文字
+                const rescueText = document.createElement('div');
+                rescueText.style.fontSize = '8vw';
+                rescueText.style.fontWeight = 'bold';
+                rescueText.style.color = '#0f0'; // 绿色，表示救援
+                rescueText.style.fontFamily = 'Arial, sans-serif';
+                rescueText.style.textAlign = 'center';
+                rescueText.style.opacity = '0';
+                rescueText.style.transition = 'opacity 1s';
+                rescueText.textContent = 'RESCUE ARRIVE';
+                
+                animationContainer.appendChild(rescueText);
+                
+                // 淡入 "RESCUE ARRIVE"
+                setTimeout(() => {
+                    rescueText.style.opacity = '1';
+                }, 50);
+                
+                // 2秒后淡出 "RESCUE ARRIVE"，显示胜利画面
+                setTimeout(() => {
+                    rescueText.style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        // 移除 "RESCUE ARRIVE" 文字
+                        animationContainer.removeChild(rescueText);
+                        
+                        // 创建胜利画面
+                        const winScreen = document.createElement('img');
+                        winScreen.src = '/FNAE-HTML5-1.1.5/assets/images/winscreen.png';
+                        winScreen.style.width = '100%';
+                        winScreen.style.height = '100%';
+                        winScreen.style.objectFit = 'contain';
+                        winScreen.style.opacity = '0';
+                        winScreen.style.transition = 'opacity 1s';
+                        
+                        animationContainer.appendChild(winScreen);
+                        
+                        // 播放胜利音乐
+                        this.assets.playSound('win', false, 1.0);
+                        
+                        // 淡入胜利画面
+                        setTimeout(() => {
+                            winScreen.style.opacity = '1';
+                        }, 50);
+                        
+                        // 5秒后淡出并返回主菜单
+                        setTimeout(() => {
+                            animationContainer.style.opacity = '0';
+                            
+                            setTimeout(() => {
+                                document.body.removeChild(animationContainer);
+                                
+                                // Night 5 通关后，解锁 Night 6（Special Night）
+                                localStorage.setItem('night6Unlocked', 'true');
+                                
+                                // 返回主菜单
+                                this.clearProgress();
+                                this.showMainMenu();
+                            }, 500);
+                        }, 5000); // 显示5秒
+                    }, 1000); // "RESCUE ARRIVE" 淡出1秒
+                }, 2000); // 显示 "RESCUE ARRIVE" 2秒
+            }, 500); // 时间淡出0.5秒
+        }, 3000); // 显示 "6:00 AM" 2秒
     }
     
-    // 电击霍金（玩家点击按钮）
-    shockHawking() {
-        if (!this.hawking.active) {
-            this.debugLog('Hawking is not active');
-            return false;
+    // Night 6 特殊胜利动画
+    playNight6VictoryAnimation() {
+        // 创建全屏动画容器
+        const animationContainer = document.createElement('div');
+        animationContainer.style.position = 'fixed';
+        animationContainer.style.top = '0';
+        animationContainer.style.left = '0';
+        animationContainer.style.width = '100%';
+        animationContainer.style.height = '100%';
+        animationContainer.style.backgroundColor = '#000';
+        animationContainer.style.display = 'flex';
+        animationContainer.style.alignItems = 'center';
+        animationContainer.style.justifyContent = 'center';
+        animationContainer.style.zIndex = '10000';
+        animationContainer.style.opacity = '0';
+        animationContainer.style.transition = 'opacity 0.5s';
+        
+        // 创建时间显示
+        const timeDisplay = document.createElement('div');
+        timeDisplay.style.fontSize = '10vw';
+        timeDisplay.style.fontWeight = 'bold';
+        timeDisplay.style.color = '#fff';
+        timeDisplay.style.fontFamily = 'Arial, sans-serif';
+        timeDisplay.textContent = '5:59 AM';
+        
+        animationContainer.appendChild(timeDisplay);
+        document.body.appendChild(animationContainer);
+        
+        // 淡入
+        setTimeout(() => {
+            animationContainer.style.opacity = '1';
+        }, 50);
+        
+        // 1秒后变为 6:00 AM 并播放钟声
+        setTimeout(() => {
+            timeDisplay.textContent = '6:00 AM';
+            this.assets.playSound('chimes', false, 1.0);
+        }, 1000);
+        
+        // 3秒后淡出时间，显示night6.png图片
+        setTimeout(() => {
+            timeDisplay.style.transition = 'opacity 0.5s';
+            timeDisplay.style.opacity = '0';
+            
+            setTimeout(() => {
+                // 移除时间显示
+                animationContainer.removeChild(timeDisplay);
+                
+                // 创建night6.png图片
+                const night6Image = document.createElement('img');
+                night6Image.src = '/FNAE-HTML5-1.1.5/assets/images/night6.png';
+                night6Image.style.width = '100%';
+                night6Image.style.height = '100%';
+                night6Image.style.objectFit = 'contain';
+                night6Image.style.opacity = '0';
+                night6Image.style.transition = 'opacity 1s';
+                
+                animationContainer.appendChild(night6Image);
+                
+                // 播放goldenstephenscare.ogg音乐
+                this.assets.playSound('goldenstephenscare', false, 1.0);
+                
+                // 淡入图片
+                setTimeout(() => {
+                    night6Image.style.opacity = '1';
+                }, 50);
+                
+                // 5秒后淡出并返回主菜单
+                setTimeout(() => {
+                    animationContainer.style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(animationContainer);
+                        
+                        // 返回主菜单
+                        this.showMainMenu();
+                    }, 500);
+                }, 5000);
+            }, 500);
+        }, 3000);
+    }
+    
+    // Night end animation: 5:59AM -> 6:00AM -> Days until rescue
+    playNightEndAnimation() {
+        // Create fullscreen animation container
+        const animationContainer = document.createElement('div');
+        animationContainer.style.position = 'fixed';
+        animationContainer.style.top = '0';
+        animationContainer.style.left = '0';
+        animationContainer.style.width = '100%';
+        animationContainer.style.height = '100%';
+        animationContainer.style.backgroundColor = '#000';
+        animationContainer.style.display = 'flex';
+        animationContainer.style.alignItems = 'center';
+        animationContainer.style.justifyContent = 'center';
+        animationContainer.style.zIndex = '10000';
+        animationContainer.style.opacity = '0';
+        animationContainer.style.transition = 'opacity 0.5s';
+        
+        // 创建时间显示
+        const timeDisplay = document.createElement('div');
+        timeDisplay.style.fontSize = '10vw';
+        timeDisplay.style.fontWeight = 'bold';
+        timeDisplay.style.color = '#fff';
+        timeDisplay.style.fontFamily = 'Arial, sans-serif';
+        timeDisplay.textContent = '5:59 AM';
+        
+        animationContainer.appendChild(timeDisplay);
+        document.body.appendChild(animationContainer);
+        
+        // Fade in
+        setTimeout(() => {
+            animationContainer.style.opacity = '1';
+        }, 50);
+        
+        // After 1s change to 6:00AM and play sound effect
+        setTimeout(() => {
+            timeDisplay.textContent = '6:00 AM';
+            this.assets.playSound('chimes', false, 1.0);
+        }, 1000);
+        
+        // After 2s more, show message
+        setTimeout(() => {
+            // 淡出时间（不改变容器透明度，保持黑色背景）
+            timeDisplay.style.transition = 'opacity 0.5s';
+            timeDisplay.style.opacity = '0';
+            
+            setTimeout(() => {
+                // 如果还有下一关，显示剩余天数（故事设定是5晚，所以总是显示5-当前关卡）
+                if (this.state.currentNight < this.state.maxNights) {
+                    const daysRemaining = 5 - this.state.currentNight; // 固定按5晚计算
+                    timeDisplay.textContent = `${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} until rescue`;
+                    timeDisplay.style.fontSize = '5vw';
+                    timeDisplay.style.color = '#fff';
+                } else {
+                    // 所有关卡完成，显示TO BE CONTINUED
+                    timeDisplay.innerHTML = 'TO BE CONTINUED...<br><span style="font-size: 3vw; color: #f00;">Web version port in progress</span>';
+                    timeDisplay.style.fontSize = '5vw';
+                    timeDisplay.style.color = '#fff';
+                }
+                timeDisplay.style.opacity = '1';
+            }, 500);
+            
+            // 再过3秒后淡出
+            setTimeout(() => {
+                animationContainer.style.opacity = '0';
+                
+                setTimeout(() => {
+                    document.body.removeChild(animationContainer);
+                    
+                    // 如果还有下一关，直接进入下一关
+                    if (this.state.currentNight < this.state.maxNights) {
+                        this.state.currentNight++;
+                        this.continueToNextNight();
+                    } else {
+                        // 所有关卡完成，清除进度并返回主菜单
+                        this.clearProgress();
+                        this.showMainMenu();
+                    }
+                }, 500);
+            }, 3000); // 改为3秒，让玩家有时间看TO BE CONTINUED
+        }, 3000);
+    }
+
+    gameOverScreen(message, win = false) {
+        this.gameOverText.textContent = message;
+        const subtitle = document.getElementById('game-over-subtitle');
+        const gameOverStatic = document.getElementById('game-over-static');
+        const restartBtn = document.getElementById('restart');
+        const mainMenuBtn = document.getElementById('main-menu-btn');
+        
+        // 隐藏按钮
+        if (restartBtn) restartBtn.style.display = 'none';
+        if (mainMenuBtn) mainMenuBtn.style.display = 'none';
+        
+        // Play static video
+        if (gameOverStatic) {
+            gameOverStatic.currentTime = 0;
+            gameOverStatic.play().catch(e => console.log('Failed to play game over static:', e));
         }
         
-        this.debugLog('Hawking shocked! Resetting timer...');
-        
-        // 清除所有计时器
-        if (this.hawking.timer) {
-            clearTimeout(this.hawking.timer);
-            this.hawking.timer = null;
+        if (win) {
+            // Only increase night number if not at max level
+            if (this.state.currentNight < this.state.maxNights) {
+                this.state.currentNight++;
+                // Hide subtitle, will continue to next night
+                subtitle.classList.add('hidden');
+                
+                // Show game over screen
+                this.gameOverElement.classList.remove('hidden');
+                
+                // Auto continue to next night after 3 seconds
+                setTimeout(() => {
+                    // 隐藏游戏结束画面
+                    this.gameOverElement.classList.add('hidden');
+                    this.gameScreen.classList.remove('active');
+                    
+                    // 停止静态视频
+                    if (gameOverStatic) {
+                        gameOverStatic.pause();
+                        gameOverStatic.currentTime = 0;
+                    }
+                    
+                    this.continueToNextNight();
+                }, 3000);
+            } else {
+                // All available levels completed, show "to be continued" message
+                subtitle.textContent = 'TO BE CONTINUED... (Web version port in progress)';
+                subtitle.classList.remove('hidden');
+                this.gameOverElement.classList.remove('hidden');
+                
+                // 3秒后自动返回主菜单
+                setTimeout(() => {
+                    this.gameOverElement.classList.add('hidden');
+                    this.showMainMenu();
+                }, 3000);
+            }
+        } else {
+            // On failure hide subtitle
+            subtitle.classList.add('hidden');
+            this.gameOverElement.classList.remove('hidden');
+            
+            // 保存进度（如果在Night 2或更高关卡死亡）
+            this.saveProgress();
+            
+            // 3秒后自动返回主菜单
+            setTimeout(() => {
+                this.gameOverElement.classList.add('hidden');
+                this.showMainMenu();
+            }, 3000);
         }
-        if (this.hawking.warningTimer) {
-            clearTimeout(this.hawking.warningTimer);
-            this.hawking.warningTimer = null;
+    }
+    
+    // Continue to next night (without cutscene)
+    async continueToNextNight() {
+        if (!this.assets.loaded) {
+            await this.assets.loadAssets();
         }
-        if (this.hawking.attackTimer) {
-            clearTimeout(this.hawking.attackTimer);
-            this.hawking.attackTimer = null;
+        
+        this.state.reset();
+        this.enemyAI.reset(); // 重置敌人AI状态
+        
+        // 重置摄像头系统的sound按钮计数
+        this.camera.resetSoundButtonCount();
+        
+        // 恢复摄像头面板的display（之前被强制隐藏）
+        const cameraPanel = document.getElementById('camera-panel');
+        if (cameraPanel) {
+            cameraPanel.style.display = ''; // 恢复默认
         }
         
-        // 重置警告等级
-        this.hawking.warningLevel = 0;
-        this.hideHawkingWarning();
+        // 显示每晚开始场景
+        await this.showNightIntro();
         
-        // 播放电击音效
-        this.game.assets.playSound('hawking_shock', false, 0.8);
+        // 进场动画结束后才显示游戏画面
+        this.gameScreen.classList.add('active');
         
-        // 20秒后重新开始警告
-        this.hawking.timer = setTimeout(() => {
-            this.showHawkingWarning('yellow');
-        }, 20000);
+        this.ui.currentSceneImg.src = this.assets.images.office.src;
+        this.ui.currentSceneImg.style.display = 'block';
+        this.viewPosition = 0.25;
+        this.ui.updateViewPosition(this.viewPosition);
         
-        return true;
+        this.ui.update();
+        this.ui.createHotspots();
+        
+        // 初始化风扇状态
+        this.initVentFanAnimation();
+        
+        this.startGameLoop();
+        this.startViewRotation();
+        
+        // Start enemy AI
+        this.enemyAI.start();
+        
+        this.assets.playSound('vents', true);
+        
+        // Show tutorial for specific nights
+        if (this.state.currentNight === 2) {
+            this.showTutorial('night2');
+        } else if (this.state.currentNight === 3) {
+            this.showTutorial('night3');
+        }
+        
+        // Night 5: 必定触发 Golden 霍金彩蛋
+        if (this.state.currentNight === 5) {
+            console.log('🌟 Night 5 detected (continueToNextNight), triggering Golden Stephen...');
+            setTimeout(() => {
+                this.showGoldenStephen();
+            }, 1000);
+        }
+    }
+
+    stopGame() {
+        this.state.isGameRunning = false;
+        clearInterval(this.timeInterval);
+        clearInterval(this.powerInterval);
+        this.enemyAI.stop();
+    }
+
+    restartGame() {
+        this.gameOverElement.classList.add('hidden');
+        // Hide game screen, prepare to restart
+        this.gameScreen.classList.remove('active');
+        this.startGame();
+    }
+
+    showMainMenu() {
+        this.gameOverElement.classList.add('hidden');
+        this.gameScreen.classList.remove('active');
+        
+        // 关闭摄像头面板
+        if (this.state.cameraOpen) {
+            this.camera.close();
+        }
+        
+        // 隐藏摄像头面板
+        const cameraPanel = document.getElementById('camera-panel');
+        if (cameraPanel) {
+            cameraPanel.classList.add('hidden');
+            cameraPanel.classList.remove('show');
+        }
+        
+        // 清理角色图层
+        const characterOverlay = document.getElementById('character-overlay');
+        if (characterOverlay) {
+            characterOverlay.innerHTML = '';
+        }
+        
+        // 隐藏控制面板
+        const controlPanel = document.getElementById('control-panel');
+        if (controlPanel) {
+            controlPanel.classList.add('hidden');
+        }
+        
+        this.mainMenu.classList.remove('hidden');
+        this.stopGame();
+        
+        // 更新Continue按钮显示
+        this.updateContinueButton();
+        
+        this.assets.stopSound('vents');
+        this.assets.stopSound('static');
+        this.assets.stopSound('staticLoop');
+        this.assets.stopSound('ventCrawling');
+        
+        const menuMusic = document.getElementById('menu-music');
+        if (menuMusic) {
+            menuMusic.loop = true;
+            menuMusic.currentTime = 0;
+            menuMusic.play().catch(e => console.log('Menu music playback failed:', e));
+        }
     }
 }
