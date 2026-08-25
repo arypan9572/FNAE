@@ -5266,5 +5266,447 @@ html.efrains-ultra-low-power #camera-panel::after{
 })();
 </script>
 
+
+
+<!-- ============================================================
+     EFRAIN'S HOUSE — ADAPTIVE ANTI-LAG / SMOOTH RENDERING ENGINE
+     ============================================================ -->
+<style id="efrains-anti-lag-engine">
+  /*
+    The visual treatment is intentionally preserved, but the expensive
+    parts are converted to compositor-friendly movement wherever possible.
+    The quality class is selected by the runtime FPS governor below.
+  */
+
+  #game-container,
+  #game-screen,
+  #camera-panel,
+  #main-menu,
+  #analog-fx-root,
+  #particle-layer{
+    contain:layout paint style;
+  }
+
+  #analog-fx-root{
+    transform:translateZ(0);
+    backface-visibility:hidden;
+  }
+
+  /* No animated filter primitives at baseline. The CSS snow layers provide
+     the same visual category without the expensive SVG turbulence repaint. */
+  #analog-noise{
+    filter:none !important;
+    background:
+      radial-gradient(circle at 18% 27%, rgba(255,255,255,.16), transparent 16%),
+      radial-gradient(circle at 78% 64%, rgba(255,255,255,.10), transparent 20%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px);
+    transform:translate3d(0,0,0) scale(1.02);
+    will-change:transform,opacity;
+  }
+
+  /* Background-position animation causes repeated paint work. Move the
+     already-painted layer instead. */
+  #analog-scanlines{
+    animation:antiLagScanMove 7s linear infinite !important;
+    will-change:transform,opacity;
+  }
+
+  #analog-static-band{
+    animation:antiLagBandMove 1.9s linear infinite !important;
+    will-change:transform,opacity;
+  }
+
+  #camera-grid{
+    animation:none !important;
+    background-position:0 0 !important;
+  }
+
+  /* Keep the CRT glass stable rather than continuously repainting its shadow. */
+  #analog-crt-glass,
+  #analog-vignette{
+    animation:none !important;
+    will-change:auto;
+  }
+
+  /* The menu stays lively through transform/opacity rather than hue/filter animation. */
+  #main-menu::before{
+    animation:antiLagMenuDrift 9s ease-in-out infinite !important;
+    will-change:transform,opacity;
+  }
+
+  #main-menu h1{
+    animation:
+      titleFloat 5.5s ease-in-out infinite,
+      titleAppear 1.3s .2s var(--ease-out) both,
+      analogTitleGhost 9s steps(1,end) infinite !important;
+    will-change:transform,opacity;
+  }
+
+  /* Avoid expensive full-screen backdrop blur on every frame. It is only
+     restored for high quality mode, and never animated itself. */
+  .ui-modal,
+  .cutscene-hint,
+  #tutorial-overlay{
+    -webkit-backdrop-filter:none !important;
+    backdrop-filter:none !important;
+  }
+
+  /* Hidden modals/cutscenes don't need their entire subtree participating in
+     painting and hit testing. */
+  .ui-modal:not(.active),
+  #cutscene.hidden,
+  #night-intro.hidden,
+  #game-over.hidden,
+  #camera-panel.hidden{
+    visibility:hidden;
+  }
+
+  #camera-static-video{
+    transform:translateZ(0);
+    backface-visibility:hidden;
+  }
+
+  /* ---------- Adaptive quality levels ---------- */
+  html.efrains-perf-high{
+    --analog-noise:.16;
+    --analog-scan:.14;
+    --static-strength:.28;
+  }
+
+  html.efrains-perf-medium{
+    --analog-noise:.105;
+    --analog-scan:.105;
+    --static-strength:.20;
+  }
+
+  html.efrains-perf-low{
+    --analog-noise:.065;
+    --analog-scan:.075;
+    --static-strength:.13;
+  }
+
+  html.efrains-perf-ultra{
+    --analog-noise:.035;
+    --analog-scan:.055;
+    --static-strength:.08;
+  }
+
+  /* Medium: retain the signature look, drop the secondary repaint layers. */
+  html.efrains-perf-medium #analog-noise-soft,
+  html.efrains-perf-medium #analog-roll{
+    opacity:0 !important;
+    animation:none !important;
+  }
+
+  html.efrains-perf-medium #camera-static-video{
+    opacity:.13 !important;
+  }
+
+  /* Low: preserve CRT, vignette and the main static treatment. */
+  html.efrains-perf-low #analog-noise-soft,
+  html.efrains-perf-low #analog-roll,
+  html.efrains-perf-low #analog-tracking,
+  html.efrains-perf-low #analog-static-fine{
+    display:none !important;
+  }
+
+  html.efrains-perf-low #camera-static-video{
+    opacity:.08 !important;
+    filter:none !important;
+  }
+
+  html.efrains-perf-low #camera-panel,
+  html.efrains-perf-low #game-screen{
+    filter:none !important;
+  }
+
+  /* Ultra-low: keep the recognizable CRT identity while removing the most
+     expensive animated surfaces. */
+  html.efrains-perf-ultra #analog-noise,
+  html.efrains-perf-ultra #analog-noise-soft,
+  html.efrains-perf-ultra #analog-roll,
+  html.efrains-perf-ultra #analog-tracking,
+  html.efrains-perf-ultra #analog-static-fine,
+  html.efrains-perf-ultra #analog-static-band{
+    display:none !important;
+  }
+
+  html.efrains-perf-ultra #analog-static-heavy{
+    opacity:.075 !important;
+    animation:antiLagTinyJitter .18s steps(2,end) infinite !important;
+  }
+
+  html.efrains-perf-ultra #camera-static-video{
+    opacity:0 !important;
+  }
+
+  html.efrains-perf-ultra #particle-layer{
+    opacity:.35;
+  }
+
+  /* If the tab is hidden, there is no reason to animate anything visual. */
+  html.efrains-page-hidden #analog-fx-root *{
+    animation-play-state:paused !important;
+  }
+
+  html.efrains-page-hidden #particle-layer{
+    display:none !important;
+  }
+
+  /* Respect user motion preferences at the compositor boundary. */
+  @media (prefers-reduced-motion:reduce){
+    #analog-fx-root *{
+      animation:none !important;
+      transition:none !important;
+    }
+    #particle-layer{display:none !important}
+  }
+
+  @keyframes antiLagScanMove{
+    0%{transform:translate3d(0,0,0)}
+    100%{transform:translate3d(0,120px,0)}
+  }
+
+  @keyframes antiLagBandMove{
+    0%{transform:translate3d(0,-10%,0)}
+    100%{transform:translate3d(0,110%,0)}
+  }
+
+  @keyframes antiLagMenuDrift{
+    0%,100%{transform:translate3d(0,0,0);opacity:.72}
+    50%{transform:translate3d(-1.2%,.8%,0);opacity:.92}
+  }
+
+  @keyframes antiLagTinyJitter{
+    0%,100%{transform:translate3d(0,0,0)}
+    50%{transform:translate3d(-1px,1px,0)}
+  }
+
+  /* Small screens get fewer simultaneously-moving layers automatically. */
+  @media (max-width:900px), (max-height:650px){
+    #analog-static-fine,
+    #analog-noise-soft{
+      display:none !important;
+    }
+    #analog-static-heavy{
+      opacity:.16;
+    }
+  }
+</style>
+
+<script id="efrains-adaptive-performance">
+(() => {
+  'use strict';
+
+  const doc = document.documentElement;
+  const root = document.getElementById('game-container');
+  if (!root) return;
+
+  const mqReduce = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const cores = navigator.hardwareConcurrency || 4;
+  const memory = navigator.deviceMemory || 4;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const screenPixels = (window.innerWidth || 1280) * (window.innerHeight || 720) * dpr * dpr;
+  const saveData = !!connection?.saveData;
+  const effectiveType = connection?.effectiveType || '';
+
+  let tier = 'high';
+  let measuring = false;
+  let rafId = 0;
+  let frames = 0;
+  let start = 0;
+  let last = 0;
+  let frameSum = 0;
+  let frameCount = 0;
+  let nextMeasureTimer = 0;
+
+  function baseTier() {
+    if (mqReduce?.matches) return 'ultra';
+    if (saveData || effectiveType === 'slow-2g' || effectiveType === '2g') return 'low';
+    if (cores <= 2 || memory <= 2 || screenPixels > 8000000) return 'medium';
+    if (cores <= 4 || memory <= 4 || screenPixels > 11000000) return 'medium';
+    return 'high';
+  }
+
+  function setTier(next) {
+    if (!next) return;
+    for (const name of ['high','medium','low','ultra']) {
+      doc.classList.toggle('efrains-perf-' + name, name === next);
+    }
+    tier = next;
+
+    /* One real static canvas and the camera video can be the most expensive
+       parts because they may still update even if the CSS layers are cheap. */
+    const canvas = document.getElementById('static-canvas');
+    const video = document.getElementById('camera-static-video');
+
+    if (canvas) {
+      canvas.style.opacity = next === 'high' ? '.18' : next === 'medium' ? '.11' : next === 'low' ? '.06' : '0';
+    }
+
+    if (video) {
+      if (next === 'ultra' || root.querySelector('#camera-panel.hidden')) {
+        if (!video.paused) {
+          video.dataset.autopaused = '1';
+          video.pause();
+        }
+      } else if (video.dataset.autopaused === '1') {
+        video.play().catch(() => {});
+        delete video.dataset.autopaused;
+      }
+    }
+  }
+
+  function clearMeasure() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    measuring = false;
+  }
+
+  function measureFrame(now) {
+    if (document.hidden || mqReduce?.matches) {
+      clearMeasure();
+      return;
+    }
+
+    if (!start) start = now;
+    if (last) {
+      const dt = now - last;
+      if (dt > 0 && dt < 1000) {
+        frameSum += dt;
+        frameCount++;
+      }
+    }
+    last = now;
+    frames++;
+
+    if (frames >= 75 || now - start >= 1700) {
+      const avg = frameCount ? frameSum / frameCount : 16.7;
+      const fps = 1000 / avg;
+
+      let next = baseTier();
+      if (fps < 31) next = 'ultra';
+      else if (fps < 43) next = 'low';
+      else if (fps < 56) next = 'medium';
+      else if (baseTier() === 'high' && fps >= 57) next = 'high';
+
+      setTier(next);
+      clearMeasure();
+      scheduleMeasure(7000);
+      return;
+    }
+
+    rafId = requestAnimationFrame(measureFrame);
+  }
+
+  function scheduleMeasure(delay) {
+    clearTimeout(nextMeasureTimer);
+    nextMeasureTimer = window.setTimeout(() => {
+      if (!document.hidden) {
+        frames = 0;
+        start = 0;
+        last = 0;
+        frameSum = 0;
+        frameCount = 0;
+        measuring = true;
+        rafId = requestAnimationFrame(measureFrame);
+      }
+    }, delay);
+  }
+
+  /* Start with hardware-aware defaults, then let real frame pacing override
+     them. This avoids forcing weak hardware through the full effect stack. */
+  setTier(baseTier());
+  if (!mqReduce?.matches) scheduleMeasure(900);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      doc.classList.add('efrains-page-hidden');
+      clearMeasure();
+      const video = document.getElementById('camera-static-video');
+      if (video && !video.paused) {
+        video.dataset.autopaused = '1';
+        video.pause();
+      }
+      const music = document.getElementById('menu-music');
+      if (music && !music.paused) {
+        music.dataset.autopaused = '1';
+        music.pause();
+      }
+    } else {
+      doc.classList.remove('efrains-page-hidden');
+      scheduleMeasure(500);
+      const video = document.getElementById('camera-static-video');
+      if (video && video.dataset.autopaused === '1' && tier !== 'ultra' && !document.getElementById('camera-panel')?.classList.contains('hidden')) {
+        video.play().catch(() => {});
+        delete video.dataset.autopaused;
+      }
+      const music = document.getElementById('menu-music');
+      if (music && music.dataset.autopaused === '1') {
+        music.play().catch(() => {});
+        delete music.dataset.autopaused;
+      }
+    }
+  }, {passive:true});
+
+  /* Camera video only needs to decode while the camera panel is actually on
+     screen. MutationObserver reacts to the game's existing class changes. */
+  const camera = document.getElementById('camera-panel');
+  const video = document.getElementById('camera-static-video');
+  if (camera && video) {
+    const syncVideo = () => {
+      const open = !camera.classList.contains('hidden') && !document.hidden && tier !== 'ultra';
+      if (open) {
+        video.play().catch(() => {});
+        delete video.dataset.autopaused;
+      } else if (!video.paused) {
+        video.dataset.autopaused = '1';
+        video.pause();
+      }
+    };
+    new MutationObserver(syncVideo).observe(camera, {attributes:true, attributeFilter:['class']});
+    syncVideo();
+  }
+
+  /* Use the Long Tasks API as a second signal. If the main thread is getting
+     hammered, shed expensive VFX without touching gameplay. */
+  if ('PerformanceObserver' in window) {
+    try {
+      let longTasks = 0;
+      let longTaskWindow = performance.now();
+      const observer = new PerformanceObserver(list => {
+        longTasks += list.getEntries().length;
+        const now = performance.now();
+        if (now - longTaskWindow > 6000) {
+          if (longTasks >= 5 && tier === 'high') setTier('medium');
+          else if (longTasks >= 9 && tier === 'medium') setTier('low');
+          else if (longTasks >= 14 && tier === 'low') setTier('ultra');
+          longTasks = 0;
+          longTaskWindow = now;
+        }
+      });
+      observer.observe({type:'longtask', buffered:false});
+    } catch (_) {}
+  }
+
+  /* Prevent repeated layout thrashing from the window-fit system by using one
+     rAF per resize burst. */
+  let resizeRAF = 0;
+  const fit = () => {
+    resizeRAF = 0;
+    doc.style.setProperty('--viewport-w', innerWidth + 'px');
+    doc.style.setProperty('--viewport-h', innerHeight + 'px');
+    const scale = Math.max(.72, Math.min(1.18, Math.min(innerWidth / 1280, innerHeight / 720)));
+    doc.style.setProperty('--ui-scale', scale.toFixed(3));
+  };
+  const onResize = () => {
+    if (!resizeRAF) resizeRAF = requestAnimationFrame(fit);
+  };
+  addEventListener('resize', onResize, {passive:true});
+  addEventListener('orientationchange', onResize, {passive:true});
+})();
+</script>
+
 </body>
 </html>
