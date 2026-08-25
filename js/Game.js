@@ -11,13 +11,31 @@ class Game {
         // Initialize CameraSystem's EP config (from EnemyAI)
         this.camera.initEPConfig();
         
+        // Centralized lifecycle/performance state.
         this.timeInterval = null;
         this.powerInterval = null;
+        this.rotationFrame = null;
+        this.gameSessionId = 0;
+        this.cutsceneTimer = null;
+        this.cutsceneEndHandler = null;
+        this.nightIntroTimers = [];
+        this.nightIntroResolve = null;
+        this.gameplayTimers = new Set();
+        this.sceneTimers = new Set();
+        this.ventAnimationTimers = [];
+        this.victoryAnimationContainer = null;
+        this.goldenStephenOverlay = null;
+        this.lastRotationTimestamp = 0;
+        this.powerAccumulator = 0;
+        this.uiUpdateQueued = false;
+        this.lastRenderedOxygen = null;
+        this.lastRenderedTime = null;
+
         this.viewPosition = 0.25;
         this.isRotatingLeft = false;
         this.isRotatingRight = false;
         this.rotationSpeed = 0.015;
-        
+
         this.initElements();
         this.bindEvents();
     }
@@ -37,15 +55,176 @@ class Game {
         this.starIcon2 = document.getElementById('star-icon-2');
         this.restartBtn = document.getElementById('restart');
         this.mainMenuBtn = document.getElementById('main-menu-btn');
+
+        // Hot DOM references are cached once instead of being queried repeatedly.
+        this.cutscene = document.getElementById('cutscene');
+        this.menuMusic = document.getElementById('menu-music');
+        this.cameraPanel = document.getElementById('camera-panel');
+        this.controlPanel = document.getElementById('control-panel');
+        this.characterOverlay = document.getElementById('character-overlay');
+        this.gameOverStatic = document.getElementById('game-over-static');
+        this.gameOverSubtitle = document.getElementById('game-over-subtitle');
+        this.tutorialContent = document.getElementById('tutorial-content');
+        this.nightIntro = document.getElementById('night-intro');
+        this.nightIntroText = document.getElementById('night-intro-text');
+        this.ventIcon = document.querySelector('.vent-icon');
+    }
+
+    // ==================== Performance & lifecycle helpers ====================
+
+    safePlaySound(name, loop = false, volume = 1) {
+        try {
+            this.assets.playSound(name, loop, volume);
+        } catch (error) {
+            console.warn(`Sound "${name}" failed:`, error);
+        }
+    }
+
+    safeStopSound(name) {
+        try {
+            this.assets.stopSound(name);
+        } catch (error) {
+            console.warn(`Sound "${name}" stop failed:`, error);
+        }
+    }
+
+    scheduleGameplay(callback, delay) {
+        const timer = setTimeout(() => {
+            this.gameplayTimers.delete(timer);
+            callback();
+        }, Math.max(0, delay));
+        this.gameplayTimers.add(timer);
+        return timer;
+    }
+
+    scheduleScene(callback, delay) {
+        const timer = setTimeout(() => {
+            this.sceneTimers.delete(timer);
+            callback();
+        }, Math.max(0, delay));
+        this.sceneTimers.add(timer);
+        return timer;
+    }
+
+    stopRotationLoop() {
+        if (this.rotationFrame !== null) {
+            cancelAnimationFrame(this.rotationFrame);
+            this.rotationFrame = null;
+        }
+        this.lastRotationTimestamp = 0;
+    }
+
+    clearGameplayTimers() {
+        for (const timer of this.gameplayTimers) clearTimeout(timer);
+        this.gameplayTimers.clear();
+
+        for (const timer of this.ventAnimationTimers) clearTimeout(timer);
+        this.ventAnimationTimers.length = 0;
+
+        this.stopRotationLoop();
+    }
+
+    clearSceneTimers() {
+        for (const timer of this.sceneTimers) clearTimeout(timer);
+        this.sceneTimers.clear();
+
+        for (const timer of this.nightIntroTimers) clearTimeout(timer);
+        this.nightIntroTimers.length = 0;
+
+        if (this.cutsceneTimer) {
+            clearTimeout(this.cutsceneTimer);
+            this.cutsceneTimer = null;
+        }
+
+        if (this.cutscene && this.cutsceneEndHandler) {
+            this.cutscene.removeEventListener('click', this.cutsceneEndHandler);
+            this.cutsceneEndHandler = null;
+        }
+
+        if (this.nightIntroResolve) {
+            const resolve = this.nightIntroResolve;
+            this.nightIntroResolve = null;
+            resolve();
+        }
+    }
+
+    resetTransientControllerState() {
+        this.isRotatingLeft = false;
+        this.isRotatingRight = false;
+        this.powerAccumulator = 0;
+        this.lastRenderedOxygen = null;
+        this.lastRenderedTime = null;
+        this.state.controlPanelBusy = false;
+        this.state.ventsToggling = false;
+    }
+
+    queueUIUpdate() {
+        if (this.uiUpdateQueued) return;
+        this.uiUpdateQueued = true;
+
+        requestAnimationFrame(() => {
+            this.uiUpdateQueued = false;
+            if (this.state.isGameRunning) this.ui.update();
+        });
+    }
+
+    cleanupOverlays() {
+        if (this.goldenStephenOverlay) {
+            this.goldenStephenOverlay.remove();
+            this.goldenStephenOverlay = null;
+        }
+
+        if (this.victoryAnimationContainer) {
+            this.victoryAnimationContainer.remove();
+            this.victoryAnimationContainer = null;
+        }
+    }
+
+    setCameraPanelHidden(hidden) {
+        if (!this.cameraPanel) return;
+        this.cameraPanel.classList.toggle('hidden', hidden);
+
+        if (hidden) {
+            this.cameraPanel.classList.remove('show', 'closing');
+        }
+    }
+
+    createFullscreenAnimationContainer() {
+        this.cleanupOverlays();
+
+        const container = document.createElement('div');
+        container.className = 'fnae-victory-overlay';
+
+        Object.assign(container.style, {
+            position: 'fixed',
+            inset: '0',
+            backgroundColor: '#000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: '10000',
+            opacity: '0',
+            transition: 'opacity 0.5s',
+            contain: 'strict',
+            willChange: 'opacity'
+        });
+
+        document.body.appendChild(container);
+        this.victoryAnimationContainer = container;
+        return container;
     }
 
     bindEvents() {
-        this.startBtn.addEventListener('click', () => this.startGame());
-        this.continueBtn.addEventListener('click', () => this.continueGame());
-        this.specialNightBtn.addEventListener('click', () => this.startSpecialNight());
-        this.restartBtn.addEventListener('click', () => this.restartGame());
-        this.mainMenuBtn.addEventListener('click', () => this.showMainMenu());
-        this.tutorialGotItBtn.addEventListener('click', () => this.closeTutorial());
+        const on = (element, event, handler) => {
+            if (element) element.addEventListener(event, handler);
+        };
+
+        on(this.startBtn, 'click', () => this.startGame());
+        on(this.continueBtn, 'click', () => this.continueGame());
+        on(this.specialNightBtn, 'click', () => this.startSpecialNight());
+        on(this.restartBtn, 'click', () => this.restartGame());
+        on(this.mainMenuBtn, 'click', () => this.showMainMenu());
+        on(this.tutorialGotItBtn, 'click', () => this.closeTutorial());
     }
     
     // 加载保存的进度
@@ -106,14 +285,20 @@ class Game {
     
     // Continue游戏（从保存的关卡开始）
     async continueGame() {
+        this.gameSessionId += 1;
+        const sessionId = this.gameSessionId;
+
+        this.stopGame();
+        this.clearSceneTimers();
+        this.cleanupOverlays();
+
         if (this.loadProgress()) {
             this.mainMenu.classList.add('hidden');
             
-            const menuMusic = document.getElementById('menu-music');
-            if (menuMusic) {
-                menuMusic.pause();
-                menuMusic.currentTime = 0;
-                menuMusic.loop = false;
+            if (this.menuMusic) {
+                this.menuMusic.pause();
+                this.menuMusic.currentTime = 0;
+                this.menuMusic.loop = false;
             }
             
             // 重置敌人AI状态
@@ -126,12 +311,20 @@ class Game {
     
     // 开始特殊夜晚（Night 6）
     async startSpecialNight() {
-        this.state.currentNight = 6; // 设置为Night 6
-        this.clearProgress(); // 清除普通进度
+        this.gameSessionId += 1;
+        const sessionId = this.gameSessionId;
+
+        this.stopGame();
+        this.clearSceneTimers();
+        this.cleanupOverlays();
+        this.resetTransientControllerState();
+
+        this.state.currentNight = 6;
+        this.clearProgress();
         
         this.mainMenu.classList.add('hidden');
         
-        const menuMusic = document.getElementById('menu-music');
+        const menuMusic = this.menuMusic || document.getElementById('menu-music');
         if (menuMusic) {
             menuMusic.pause();
             menuMusic.currentTime = 0;
@@ -146,110 +339,106 @@ class Game {
     }
 
     async startGame() {
-        // NEW GAME总是从Night 1开始
+        this.gameSessionId += 1;
+        const sessionId = this.gameSessionId;
+
+        this.stopGame();
+        this.clearSceneTimers();
+        this.cleanupOverlays();
+        this.resetTransientControllerState();
+
         this.state.currentNight = 1;
-        this.clearProgress(); // 清除之前的进度
-        
-        this.mainMenu.classList.add('hidden');
-        
-        const menuMusic = document.getElementById('menu-music');
-        if (menuMusic) {
-            menuMusic.pause();
-            menuMusic.currentTime = 0;
-            menuMusic.loop = false;
+        this.clearProgress();
+
+        if (this.mainMenu) this.mainMenu.classList.add('hidden');
+
+        if (this.menuMusic) {
+            this.menuMusic.pause();
+            this.menuMusic.currentTime = 0;
+            this.menuMusic.loop = false;
         }
-        
-        // 重置敌人AI状态
-        this.enemyAI.reset();
-        
-        const cutscene = document.getElementById('cutscene');
-        cutscene.classList.remove('hidden');
-        
-        // 触发淡入效果
-        setTimeout(() => {
-            cutscene.classList.add('fade-in');
-        }, 50);
-        
-        let cutsceneEnded = false;
-        
+
+        if (this.enemyAI && typeof this.enemyAI.reset === 'function') {
+            this.enemyAI.reset();
+        }
+
+        const cutscene = this.cutscene;
+        if (!cutscene) {
+            await this.initGame();
+            return;
+        }
+
+        cutscene.classList.remove('hidden', 'fade-out', 'fade-in');
+
+        let ended = false;
+
         const endCutscene = () => {
-            if (cutsceneEnded) return;
-            cutsceneEnded = true;
-            
-            // 淡出效果
+            if (ended || sessionId !== this.gameSessionId) return;
+            ended = true;
+
             cutscene.classList.remove('fade-in');
             cutscene.classList.add('fade-out');
-            
-            // 等待淡出完成后隐藏并开始游戏
-            setTimeout(() => {
+
+            this.scheduleScene(() => {
                 cutscene.classList.add('hidden');
                 cutscene.classList.remove('fade-out');
-                // 不在这里显示游戏画面，让initGame处理
                 this.initGame();
             }, 3000);
-            
+
             cutscene.removeEventListener('click', endCutscene);
-            if (autoEndTimeout) clearTimeout(autoEndTimeout);
+            this.cutsceneTimer = null;
         };
-        
-        // 点击跳过
+
+        this.cutsceneEndHandler = endCutscene;
         cutscene.addEventListener('click', endCutscene);
-        
-        // 3秒后自动开始淡出（总共6秒：3秒淡入 + 3秒淡出）
-        const autoEndTimeout = setTimeout(() => {
-            endCutscene();
-        }, 3000);
+        this.scheduleScene(() => {
+            if (sessionId === this.gameSessionId) cutscene.classList.add('fade-in');
+        }, 50);
+        this.cutsceneTimer = this.scheduleScene(endCutscene, 3000);
     }
-    
+
     async initGame() {
-        // console.log('🎮 initGame called, currentNight:', this.state.currentNight);
-        
+        const sessionId = this.gameSessionId;
+
         if (!this.assets.loaded) {
             await this.assets.loadAssets();
         }
-        
+
+        this.clearGameplayTimers();
+        this.stopGame();
+        this.resetTransientControllerState();
+
         this.state.reset();
-        
-        // console.log('🎮 After state.reset(), currentNight:', this.state.currentNight);
-        
-        // 重置摄像头系统的sound按钮计数
         this.camera.resetSoundButtonCount();
-        
-        // 恢复摄像头面板的display（之前可能被强制隐藏）
-        const cameraPanel = document.getElementById('camera-panel');
-        if (cameraPanel) {
-            cameraPanel.style.display = ''; // 恢复默认
-            // console.log('🎮 Camera panel display restored');
+
+        if (this.cameraPanel) {
+            this.cameraPanel.style.display = '';
+            this.cameraPanel.classList.remove('show', 'closing');
         }
-        
-        // 显示每晚开始场景（在显示游戏画面之前）
+
         await this.showNightIntro();
-        
-        // console.log('🎮 After showNightIntro(), currentNight:', this.state.currentNight);
-        
-        // 进场动画结束后才显示游戏画面
+
+        if (sessionId !== this.gameSessionId || !this.gameScreen) return;
+
         this.gameScreen.classList.add('active');
-        
-        this.ui.currentSceneImg.src = this.assets.images.office.src;
-        this.ui.currentSceneImg.style.display = 'block';
+
+        if (this.ui.currentSceneImg) {
+            this.ui.currentSceneImg.src = this.assets.images.office.src;
+            this.ui.currentSceneImg.style.display = 'block';
+        }
+
         this.viewPosition = 0.25;
         this.ui.updateViewPosition(this.viewPosition);
-        
         this.ui.update();
         this.ui.createHotspots();
-        
-        // 初始化风扇状态（通风口默认打开，风扇快速旋转）
+
         this.initVentFanAnimation();
-        
         this.startGameLoop();
         this.startViewRotation();
-        
-        // Start enemy AI
         this.enemyAI.start();
-        
-        this.assets.playSound('vents', true);
-        
-        // Show tutorial
+
+        this.safePlaySound('vents', true);
+
         if (this.state.currentNight === 1) {
             this.showTutorial('night1');
         } else if (this.state.currentNight === 2) {
@@ -257,20 +446,12 @@ class Game {
         } else if (this.state.currentNight === 3) {
             this.showTutorial('night3');
         }
-        
-        // console.log('🎮 Before Golden check, currentNight:', this.state.currentNight);
-        
-        // Night 5: 必定触发 Golden 霍金彩蛋（放在最后，确保游戏已完全初始化）
+
         if (this.state.currentNight === 5) {
-            // console.log('🌟 Night 5 detected, triggering Golden Stephen...');
-            setTimeout(() => {
-                this.showGoldenStephen();
-            }, 1000); // 进入游戏1秒后触发
-        } // else {
-            // console.log('❌ Not Night 5, currentNight is:', this.state.currentNight);
-        // }
+            this.scheduleGameplay(() => this.showGoldenStephen(), 1000);
+        }
     }
-    
+
     // 初始化风扇动画状态
     initVentFanAnimation() {
         const ventIcon = document.querySelector('.vent-icon');
@@ -397,6 +578,7 @@ class Game {
     
     showNightIntro() {
         return new Promise((resolve) => {
+            this.nightIntroResolve = resolve;
             const nightIntro = document.getElementById('night-intro');
             const nightIntroText = document.getElementById('night-intro-text');
             
@@ -427,154 +609,173 @@ class Game {
     }
     
     startViewRotation() {
-        const rotationLoop = () => {
-            if (!this.state.isGameRunning) return;
-            
-            // If control panel or camera is open, disable rotation
-            if (!this.state.controlPanelOpen && !this.state.cameraOpen) {
-                if (this.isRotatingLeft && this.viewPosition > 0) {
-                    this.viewPosition -= this.rotationSpeed;
-                    this.viewPosition = Math.max(0, this.viewPosition);
-                    this.ui.updateViewPosition(this.viewPosition);
-                }
-                
-                if (this.isRotatingRight && this.viewPosition < 1) {
-                    this.viewPosition += this.rotationSpeed;
-                    this.viewPosition = Math.min(1, this.viewPosition);
-                    this.ui.updateViewPosition(this.viewPosition);
-                }
+        this.stopRotationLoop();
+
+        const rotationLoop = (timestamp) => {
+            if (!this.state.isGameRunning) {
+                this.rotationFrame = null;
+                return;
             }
-            
-            requestAnimationFrame(rotationLoop);
+
+            this.rotationFrame = requestAnimationFrame(rotationLoop);
+
+            const last = this.lastRotationTimestamp || timestamp;
+            const delta = Math.min(50, Math.max(0, timestamp - last));
+            this.lastRotationTimestamp = timestamp;
+
+            if (this.state.controlPanelOpen || this.state.cameraOpen) return;
+            if (!this.isRotatingLeft && !this.isRotatingRight) return;
+
+            const movement = this.rotationSpeed * (delta / 16.667);
+            let changed = false;
+
+            if (this.isRotatingLeft && this.viewPosition > 0) {
+                const next = Math.max(0, this.viewPosition - movement);
+                changed = changed || next !== this.viewPosition;
+                this.viewPosition = next;
+            }
+
+            if (this.isRotatingRight && this.viewPosition < 1) {
+                const next = Math.min(1, this.viewPosition + movement);
+                changed = changed || next !== this.viewPosition;
+                this.viewPosition = next;
+            }
+
+            if (changed) this.ui.updateViewPosition(this.viewPosition);
         };
-        
-        rotationLoop();
+
+        this.rotationFrame = requestAnimationFrame(rotationLoop);
+    }
+
+    stopRotationLoop() {
+        if (this.rotationFrame !== null) {
+            cancelAnimationFrame(this.rotationFrame);
+            this.rotationFrame = null;
+        }
+        this.lastRotationTimestamp = 0;
     }
 
     startGameLoop() {
-        this.timeInterval = setInterval(() => {
-            this.state.currentTime += 1;
-            this.ui.update();
-            
-            if (this.state.currentTime >= 6) {
-                this.winNight();
-            }
-        }, 60000);
-        
+        this.stopGameLoopTimers();
+
+        // A single 1-second clock replaces the original two independent
+        // intervals.  Gameplay timing remains the same.
+        let elapsedSeconds = 0;
+
         this.powerInterval = setInterval(() => {
+            if (!this.state.isGameRunning) return;
+
+            elapsedSeconds += 1;
+
+            if (elapsedSeconds >= 60) {
+                elapsedSeconds = 0;
+                this.state.currentTime += 1;
+
+                if (this.state.currentTime >= 6) {
+                    this.winNight();
+                    return;
+                }
+            }
+
             this.updatePower();
         }, 1000);
+
+        // Keep the legacy property available for compatibility.
+        this.timeInterval = this.powerInterval;
+    }
+
+    stopGameLoopTimers() {
+        if (this.powerInterval) {
+            clearInterval(this.powerInterval);
+            this.powerInterval = null;
+        }
+        this.timeInterval = null;
     }
 
     updatePower() {
+        const previousOxygen = this.state.oxygen;
+        const previousTime = this.lastRenderedTime;
+
         if (this.state.ventsClosed) {
-            // When vents closed, oxygen decreases (faster speed)
             this.state.oxygen -= 1.5;
-        } else {
-            // When vents open, oxygen quickly recovers to 100%
-            if (this.state.oxygen < 100) {
-                this.state.oxygen += 2;
-            }
+        } else if (this.state.oxygen < 100) {
+            this.state.oxygen += 2;
         }
-        
+
         this.state.oxygen = Math.max(0, Math.min(100, this.state.oxygen));
-        
-        if (this.state.oxygen <= 0) {
-            this.oxygenOut();
+
+        this.lastRenderedOxygen = this.state.oxygen;
+        this.lastRenderedTime = this.state.currentTime;
+
+        // Only enqueue the full UI render when visible state changed.
+        if (previousOxygen !== this.state.oxygen || previousTime !== this.state.currentTime) {
+            this.queueUIUpdate();
         }
-        
-        this.ui.update();
+
+        if (this.state.oxygen <= 0) this.oxygenOut();
     }
 
     toggleVents() {
-        console.log('toggleVents called, controlPanelBusy:', this.state.controlPanelBusy);
-        
-        // 如果控制面板正忙，不允许操作
-        if (this.state.controlPanelBusy) {
-            console.log('Control panel is busy, please wait...');
-            return;
-        }
-        
-        // 标记控制面板为忙碌状态
+        if (this.state.controlPanelBusy || this.state.ventsToggling) return;
+
         this.state.controlPanelBusy = true;
         this.state.ventsToggling = true;
-        console.log('Starting vent toggle animation...');
-        
-        // 播放心电图音效
-        this.assets.playSound('ekg', false, 0.8);
-        
-        // 获取风扇图标
-        const ventIcon = document.querySelector('.vent-icon');
-        
-        if (this.state.ventsClosed) {
-            // 当前关闭，要打开 -> 风扇从停止加速到快速
-            console.log('Opening vents: fan speeding up');
-            if (ventIcon) {
+
+        this.safePlaySound('ekg', false, 0.8);
+
+        const ventIcon = this.ventIcon || document.querySelector('.vent-icon');
+
+        for (const timer of this.ventAnimationTimers) clearTimeout(timer);
+        this.ventAnimationTimers.length = 0;
+
+        if (ventIcon) {
+            if (this.state.ventsClosed) {
                 ventIcon.classList.remove('stopped', 'slowing');
                 ventIcon.classList.add('speeding-up');
-                
-                // 逐步加速动画
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-slow 2s linear infinite';
-                }, 0);
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
-                }, 1000);
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-fast 0.333s linear infinite';
-                    ventIcon.classList.remove('speeding-up');
-                }, 2000);
-            }
-        } else {
-            // 当前打开，要关闭 -> 风扇从快速减速到停止
-            console.log('Closing vents: fan slowing down');
-            if (ventIcon) {
+                ventIcon.style.animation = 'spin-slow 2s linear infinite';
+
+                this.ventAnimationTimers.push(
+                    this.scheduleGameplay(() => {
+                        ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
+                    }, 1000),
+                    this.scheduleGameplay(() => {
+                        ventIcon.style.animation = 'spin-fast 0.333s linear infinite';
+                        ventIcon.classList.remove('speeding-up');
+                    }, 2000)
+                );
+            } else {
                 ventIcon.classList.remove('speeding-up');
                 ventIcon.classList.add('slowing');
-                
-                // 逐步减速动画
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
-                }, 0);
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-slow 2s linear infinite';
-                }, 1000);
-                setTimeout(() => {
-                    ventIcon.style.animation = 'spin-slow 3s linear infinite';
-                }, 2000);
-                setTimeout(() => {
-                    ventIcon.style.animation = 'none';
-                    ventIcon.classList.remove('slowing');
-                    ventIcon.classList.add('stopped');
-                }, 3000);
+                ventIcon.style.animation = 'spin-slow 1.5s linear infinite';
+
+                this.ventAnimationTimers.push(
+                    this.scheduleGameplay(() => {
+                        ventIcon.style.animation = 'spin-slow 2s linear infinite';
+                    }, 1000),
+                    this.scheduleGameplay(() => {
+                        ventIcon.style.animation = 'spin-slow 3s linear infinite';
+                    }, 2000),
+                    this.scheduleGameplay(() => {
+                        ventIcon.style.animation = 'none';
+                        ventIcon.classList.remove('slowing');
+                        ventIcon.classList.add('stopped');
+                    }, 3000)
+                );
             }
         }
-        
-        // 更新UI显示点动画
+
         this.ui.updateVentsStatus();
-        
-        // 启动定时更新（每100ms更新一次UI）
-        const updateInterval = setInterval(() => {
-            this.ui.updateVentsStatus();
-            if (!this.state.ventsToggling) {
-                clearInterval(updateInterval);
-            }
-        }, 100);
-        
-        // 4秒后完成切换
-        setTimeout(() => {
+
+        // The old 100ms polling loop was unnecessary.  Vent UI is updated
+        // immediately and once the state transition completes.
+        this.scheduleGameplay(() => {
             this.state.ventsClosed = !this.state.ventsClosed;
-            console.log('Vents:', this.state.ventsClosed ? 'closed' : 'open');
-            
-            // 通知 EnemyAI 通风口状态变化
+
             this.enemyAI.onVentsChanged(this.state.ventsClosed);
-            
-            // 解除锁定
+
             this.state.ventsToggling = false;
             this.state.controlPanelBusy = false;
-            console.log('Vent toggle completed');
-            
-            // 更新UI和控制面板选项文本
+
             this.ui.update();
             this.ui.updateVentsStatus();
             this.ui.updateControlPanelOptions();
@@ -589,14 +790,14 @@ class Game {
 
     oxygenOut() {
         this.stopGame();
-        this.assets.stopSound('ambient');
+        this.safeStopSound('ambient');
         // Oxygen depleted triggers jumpscare
         this.enemyAI.triggerJumpscare();
     }
     
     gameOver(message) {
         this.stopGame();
-        this.assets.stopSound('ambient');
+        this.safeStopSound('ambient');
         
         // 立即隐藏游戏画面
         this.gameScreen.classList.remove('active');
@@ -607,20 +808,20 @@ class Game {
         }
         
         // 隐藏摄像头面板
-        const cameraPanel = document.getElementById('camera-panel');
+        const cameraPanel = this.cameraPanel || document.getElementById('camera-panel');
         if (cameraPanel) {
             cameraPanel.classList.add('hidden');
             cameraPanel.classList.remove('show');
         }
         
         // 清理角色图层
-        const characterOverlay = document.getElementById('character-overlay');
+        const characterOverlay = this.characterOverlay || document.getElementById('character-overlay');
         if (characterOverlay) {
-            characterOverlay.innerHTML = '';
+            characterOverlay.replaceChildren();
         }
         
         // 隐藏控制面板
-        const controlPanel = document.getElementById('control-panel');
+        const controlPanel = this.controlPanel || document.getElementById('control-panel');
         if (controlPanel) {
             controlPanel.classList.add('hidden');
         }
@@ -630,7 +831,7 @@ class Game {
 
     winNight() {
         this.stopGame();
-        this.assets.stopSound('ambient');
+        this.safeStopSound('ambient');
         
         // 关闭摄像头（如果打开）
         if (this.state.cameraOpen) {
@@ -638,7 +839,7 @@ class Game {
         }
         
         // 强制隐藏摄像头面板，防止闪现
-        const cameraPanel = document.getElementById('camera-panel');
+        const cameraPanel = this.cameraPanel || document.getElementById('camera-panel');
         if (cameraPanel) {
             cameraPanel.classList.add('hidden');
             cameraPanel.classList.remove('show', 'closing');
@@ -941,8 +1142,8 @@ class Game {
 
     gameOverScreen(message, win = false) {
         this.gameOverText.textContent = message;
-        const subtitle = document.getElementById('game-over-subtitle');
-        const gameOverStatic = document.getElementById('game-over-static');
+        const subtitle = this.gameOverSubtitle || document.getElementById('game-over-subtitle');
+        const gameOverStatic = this.gameOverStatic || document.getElementById('game-over-static');
         const restartBtn = document.getElementById('restart');
         const mainMenuBtn = document.getElementById('main-menu-btn');
         
@@ -1010,6 +1211,9 @@ class Game {
     
     // Continue to next night (without cutscene)
     async continueToNextNight() {
+        this.gameSessionId += 1;
+        const sessionId = this.gameSessionId;
+
         if (!this.assets.loaded) {
             await this.assets.loadAssets();
         }
@@ -1021,7 +1225,7 @@ class Game {
         this.camera.resetSoundButtonCount();
         
         // 恢复摄像头面板的display（之前被强制隐藏）
-        const cameraPanel = document.getElementById('camera-panel');
+        const cameraPanel = this.cameraPanel || document.getElementById('camera-panel');
         if (cameraPanel) {
             cameraPanel.style.display = ''; // 恢复默认
         }
@@ -1049,7 +1253,7 @@ class Game {
         // Start enemy AI
         this.enemyAI.start();
         
-        this.assets.playSound('vents', true);
+        this.safePlaySound('vents', true);
         
         // Show tutorial for specific nights
         if (this.state.currentNight === 2) {
@@ -1061,17 +1265,25 @@ class Game {
         // Night 5: 必定触发 Golden 霍金彩蛋
         if (this.state.currentNight === 5) {
             console.log('🌟 Night 5 detected (continueToNextNight), triggering Golden Stephen...');
-            setTimeout(() => {
-                this.showGoldenStephen();
-            }, 1000);
+            this.scheduleGameplay(() => this.showGoldenStephen(), 1000);
         }
     }
 
     stopGame() {
         this.state.isGameRunning = false;
-        clearInterval(this.timeInterval);
-        clearInterval(this.powerInterval);
-        this.enemyAI.stop();
+
+        this.stopGameLoopTimers();
+        this.stopRotationLoop();
+
+        for (const timer of this.gameplayTimers) clearTimeout(timer);
+        this.gameplayTimers.clear();
+
+        for (const timer of this.ventAnimationTimers) clearTimeout(timer);
+        this.ventAnimationTimers.length = 0;
+
+        if (this.enemyAI && typeof this.enemyAI.stop === 'function') {
+            this.enemyAI.stop();
+        }
     }
 
     restartGame() {
@@ -1082,49 +1294,61 @@ class Game {
     }
 
     showMainMenu() {
-        this.gameOverElement.classList.add('hidden');
-        this.gameScreen.classList.remove('active');
-        
-        // 关闭摄像头面板
+        this.gameSessionId += 1;
+        this.stopGame();
+        this.clearSceneTimers();
+        this.cleanupOverlays();
+
+        this.isRotatingLeft = false;
+        this.isRotatingRight = false;
+        this.state.controlPanelBusy = false;
+        this.state.ventsToggling = false;
+
+        if (this.gameOverElement) this.gameOverElement.classList.add('hidden');
+        if (this.gameScreen) this.gameScreen.classList.remove('active');
+
         if (this.state.cameraOpen) {
             this.camera.close();
         }
-        
-        // 隐藏摄像头面板
-        const cameraPanel = document.getElementById('camera-panel');
-        if (cameraPanel) {
-            cameraPanel.classList.add('hidden');
-            cameraPanel.classList.remove('show');
+
+        this.setCameraPanelHidden(true);
+
+        if (this.characterOverlay) {
+            this.characterOverlay.replaceChildren();
         }
-        
-        // 清理角色图层
-        const characterOverlay = document.getElementById('character-overlay');
-        if (characterOverlay) {
-            characterOverlay.innerHTML = '';
+
+        if (this.controlPanel) {
+            this.controlPanel.classList.add('hidden');
         }
-        
-        // 隐藏控制面板
-        const controlPanel = document.getElementById('control-panel');
-        if (controlPanel) {
-            controlPanel.classList.add('hidden');
-        }
-        
-        this.mainMenu.classList.remove('hidden');
-        this.stopGame();
-        
-        // 更新Continue按钮显示
+
+        if (this.mainMenu) this.mainMenu.classList.remove('hidden');
+
         this.updateContinueButton();
-        
-        this.assets.stopSound('vents');
-        this.assets.stopSound('static');
-        this.assets.stopSound('staticLoop');
-        this.assets.stopSound('ventCrawling');
-        
-        const menuMusic = document.getElementById('menu-music');
-        if (menuMusic) {
-            menuMusic.loop = true;
-            menuMusic.currentTime = 0;
-            menuMusic.play().catch(e => console.log('Menu music playback failed:', e));
+
+        this.safeStopSound('vents');
+        this.safeStopSound('static');
+        this.safeStopSound('staticLoop');
+        this.safeStopSound('ventCrawling');
+
+        if (this.menuMusic) {
+            this.menuMusic.loop = true;
+            this.menuMusic.currentTime = 0;
+            this.menuMusic.play().catch(() => {});
         }
+    }
+
+    getPerformanceSnapshot() {
+        return {
+            night: this.state.currentNight,
+            time: this.state.currentTime,
+            oxygen: this.state.oxygen,
+            ventsClosed: this.state.ventsClosed,
+            cameraOpen: this.state.cameraOpen,
+            isGameRunning: this.state.isGameRunning,
+            activeGameplayTimers: this.gameplayTimers.size,
+            activeSceneTimers: this.sceneTimers.size,
+            rotationActive: this.rotationFrame !== null,
+            enemyAIActive: !!this.enemyAI
+        };
     }
 }
