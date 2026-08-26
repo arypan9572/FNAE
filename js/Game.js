@@ -394,7 +394,136 @@ class Game {
         this.scheduleScene(() => {
             if (sessionId === this.gameSessionId) cutscene.classList.add('fade-in');
         }, 50);
-        this.cutsceneTimer = this.scheduleScene(endCutscene, 3000);
+        // ============================================================
+// START NEW GAME CUTSCENE
+// ============================================================
+
+const cutscene = this.cutscene;
+
+if (!cutscene) {
+    await this.initGame();
+    return;
+}
+
+// ------------------------------------------------------------
+// Reset cutscene state
+// ------------------------------------------------------------
+
+cutscene.classList.remove(
+    'hidden',
+    'fade-out'
+);
+
+cutscene.classList.remove(
+    'fade-in'
+);
+
+// Force the browser to acknowledge the initial state.
+void cutscene.offsetWidth;
+
+let cutsceneEnded = false;
+
+// ------------------------------------------------------------
+// Fade the cutscene in
+// ------------------------------------------------------------
+
+requestAnimationFrame(() => {
+    if (
+        sessionId !== this.gameSessionId ||
+        cutsceneEnded
+    ) {
+        return;
+    }
+
+    cutscene.classList.add(
+        'fade-in'
+    );
+});
+
+// ------------------------------------------------------------
+// CLICK = CONTINUE
+//
+// There is NO automatic timer.
+// The game does not begin until the player clicks.
+// ------------------------------------------------------------
+
+const endCutscene = () => {
+    if (
+        cutsceneEnded ||
+        sessionId !== this.gameSessionId
+    ) {
+        return;
+    }
+
+    cutsceneEnded = true;
+
+    // Remove listener immediately so repeated clicks
+    // cannot start initGame multiple times.
+    cutscene.removeEventListener(
+        'click',
+        endCutscene
+    );
+
+    this.cutsceneEndHandler = null;
+
+    if (this.cutsceneTimer !== null) {
+        clearTimeout(
+            this.cutsceneTimer
+        );
+
+        this.cutsceneTimer = null;
+    }
+
+    // --------------------------------------------------------
+    // Fade OUT only because the player clicked.
+    // --------------------------------------------------------
+
+    cutscene.classList.remove(
+        'fade-in'
+    );
+
+    cutscene.classList.add(
+        'fade-out'
+    );
+
+    // --------------------------------------------------------
+    // Wait for the CSS fade-out to finish.
+    // THEN actually start the night.
+    // --------------------------------------------------------
+
+    this.cutsceneTimer =
+        this.scheduleScene(() => {
+            this.cutsceneTimer = null;
+
+            if (
+                sessionId !== this.gameSessionId
+            ) {
+                return;
+            }
+
+            cutscene.classList.add(
+                'hidden'
+            );
+
+            cutscene.classList.remove(
+                'fade-out'
+            );
+
+            // THIS starts the actual game.
+            this.initGame();
+        }, 3000);
+};
+
+this.cutsceneEndHandler =
+    endCutscene;
+
+cutscene.addEventListener(
+    'click',
+    endCutscene,
+    {
+        once: false
+    }
+);
     }
 
     async initGame() {
