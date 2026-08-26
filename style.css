@@ -1,122 +1,343 @@
 /* ============================================================
-   IN-GAME UI
-   Clean, consistent, responsive HUD
+   FNAE — IN-GAME UI OVERHAUL
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   GAME VIEWPORT
+   ------------------------------------------------------------ */
+
+#game-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+
+    background: #000;
+
+    isolation: isolate;
+
+    --scene-rotation: 0deg;
+    --scene-depth: 1.045;
+}
+
+
+/* ------------------------------------------------------------
+   MAIN SCENE
+   ------------------------------------------------------------ */
+
+#current-scene {
+    position: absolute;
+
+    /*
+        Oversized environment allows the player to move
+        through the image instead of running out of texture.
+    */
+    top: 0;
+    left: 0;
+
+    width: 150%;
+    height: 100%;
+
+    /*
+        Deliberately use fill instead of cover so the entire
+        environment always occupies the playable viewport.
+    */
+    object-fit: fill;
+
+    object-position: center;
+
+    display: block;
+
+    transform:
+        perspective(1600px)
+        rotateY(var(--scene-rotation))
+        scaleX(var(--scene-depth));
+
+    transform-origin: center center;
+
+    /*
+        Small smoothing prevents the perspective movement
+        from looking disconnected from the camera movement.
+    */
+    transition:
+        left 0.045s linear,
+        transform 0.12s ease-out;
+
+    /*
+        Important for performance.
+    */
+    will-change:
+        left,
+        transform;
+
+    user-select: none;
+    -webkit-user-drag: none;
+
+    pointer-events: none;
+
+    z-index: 1;
+}
+
+
+/* ------------------------------------------------------------
+   GAME WORLD DEPTH
+   ------------------------------------------------------------ */
+
+#game-screen::before {
+    content: "";
+
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    z-index: 2;
+
+    /*
+        Very subtle cinematic vignette.
+    */
+    background:
+        radial-gradient(
+            ellipse at center,
+            rgba(0, 0, 0, 0) 45%,
+            rgba(0, 0, 0, 0.28) 100%
+        );
+
+    mix-blend-mode: multiply;
+}
+
+
+/* ------------------------------------------------------------
+   HOTSPOTS
+   ------------------------------------------------------------ */
+
+#hotspots {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    pointer-events: none;
+
+    overflow: hidden;
+
+    z-index: 8;
+}
+
+
+.hotspot {
+    position: absolute;
+
+    pointer-events: auto;
+
+    cursor: pointer;
+
+    box-sizing: border-box;
+
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+
+    touch-action: manipulation;
+}
+
+
+/* ============================================================
+   IN-GAME HUD
    ============================================================ */
 
 #ui-overlay {
     position: absolute;
     inset: 0;
+
     width: 100%;
     height: 100%;
+
     pointer-events: none;
-    z-index: 10;
-    font-family: 'Courier New', monospace;
+
+    overflow: hidden;
+
+    z-index: 12;
+
+    font-family:
+        "Courier New",
+        monospace;
+
     font-weight: 700;
+
     box-sizing: border-box;
+
+    /*
+        Important:
+        this overlay should only visually exist while gameplay
+        is active. Your JS below also enforces this.
+    */
+    visibility: hidden;
+
+    opacity: 0;
+
+    transition:
+        opacity 0.18s ease,
+        visibility 0s linear 0.18s;
 }
 
-/* ------------------------------------------------------------
+
+/*
+    Gameplay-active state.
+*/
+#ui-overlay.gameplay-visible {
+    visibility: visible;
+    opacity: 1;
+
+    transition:
+        opacity 0.18s ease;
+}
+
+
+/* ============================================================
    TOP-LEFT HUD
-   ------------------------------------------------------------ */
+   ============================================================ */
 
 #top-left-ui {
     position: absolute;
+
     top: clamp(12px, 2.2vh, 28px);
     left: clamp(14px, 2vw, 32px);
+
     display: flex;
     flex-direction: column;
+
     align-items: flex-start;
-    gap: clamp(2px, 0.3vh, 5px);
+
+    gap: clamp(3px, 0.35vh, 6px);
 
     color: #fff;
+
     text-shadow:
         2px 2px 0 #000,
-        0 0 6px rgba(0, 0, 0, 0.85);
+        0 0 7px rgba(0, 0, 0, 0.9);
 
     pointer-events: none;
-    z-index: 12;
+
+    z-index: 2;
 }
 
-/* Current time */
 
 #time-display {
     margin: 0;
     padding: 0;
 
-    font-size: clamp(22px, 2.5vw, 42px);
+    font-size:
+        clamp(
+            24px,
+            2.6vw,
+            44px
+        );
+
     line-height: 1;
+
     font-weight: 700;
-    letter-spacing: 0.04em;
+
+    letter-spacing:
+        0.045em;
 
     color: #fff;
+
+    white-space: nowrap;
 }
 
-/* Current night */
 
 #night-display {
     margin: 0;
     padding: 0;
 
-    font-size: clamp(13px, 1.25vw, 22px);
+    font-size:
+        clamp(
+            13px,
+            1.25vw,
+            21px
+        );
+
     line-height: 1.2;
-    font-weight: 700;
-    letter-spacing: 0.08em;
 
-    color: rgba(255, 255, 255, 0.78);
-}
+    color:
+        rgba(255, 255, 255, 0.76);
 
+    letter-spacing:
+        0.08em;
 
-/* ------------------------------------------------------------
-   BOTTOM-RIGHT HUD
-   ------------------------------------------------------------ */
-
-#bottom-right-ui {
-    position: absolute;
-    right: clamp(14px, 2vw, 32px);
-    bottom: clamp(12px, 2.2vh, 28px);
-
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-
-    color: #fff;
-    text-shadow:
-        2px 2px 0 #000,
-        0 0 6px rgba(0, 0, 0, 0.85);
-
-    pointer-events: none;
-    z-index: 12;
-}
-
-
-/* ------------------------------------------------------------
-   OXYGEN DISPLAY
-   ------------------------------------------------------------ */
-
-#oxygen-display {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-
-    min-height: clamp(32px, 3vw, 54px);
-
-    font-size: clamp(18px, 2vw, 34px);
-    line-height: 1;
-
-    font-weight: 700;
-    letter-spacing: 0.03em;
     white-space: nowrap;
 }
 
 
-/* Fan / vent icon */
+/* ============================================================
+   OXYGEN / POWER HUD
+   ============================================================ */
 
-#oxygen-display .vent-icon {
-    margin: 0 clamp(6px, 0.8vw, 14px) 0 0;
+#bottom-right-ui {
+    position: absolute;
+
+    right: clamp(14px, 2vw, 32px);
+    bottom: clamp(12px, 2.1vh, 28px);
+
+    display: flex;
+
+    align-items: center;
+    justify-content: flex-end;
+
+    color: #fff;
+
+    text-shadow:
+        2px 2px 0 #000,
+        0 0 7px rgba(0, 0, 0, 0.9);
+
+    pointer-events: none;
+
+    z-index: 2;
 }
 
 
-/* Oxygen value */
+#oxygen-display {
+    display: flex;
+
+    align-items: center;
+    justify-content: flex-end;
+
+    min-height:
+        clamp(
+            30px,
+            3vw,
+            52px
+        );
+
+    font-size:
+        clamp(
+            18px,
+            2vw,
+            34px
+        );
+
+    line-height: 1;
+
+    font-weight: 700;
+
+    white-space: nowrap;
+
+    font-variant-numeric:
+        tabular-nums;
+}
+
+
+#oxygen-display .vent-icon {
+    margin-right:
+        clamp(
+            7px,
+            0.8vw,
+            14px
+        );
+}
+
 
 #power-value {
     margin: 0;
@@ -124,245 +345,155 @@
 
     min-width: 2ch;
 
-    font-variant-numeric: tabular-nums;
     text-align: right;
 }
 
 
-/* Percent sign */
-
 .percent-sign {
-    margin: 0 0 0 clamp(2px, 0.15vw, 4px);
-    padding: 0;
+    margin-left:
+        clamp(
+            2px,
+            0.15vw,
+            4px
+        );
 }
 
-
-/* Oxygen label */
 
 .oxygen-unit {
     display: inline-flex;
+
     align-items: baseline;
 
-    margin-left: clamp(8px, 0.9vw, 16px);
+    margin-left:
+        clamp(
+            8px,
+            0.9vw,
+            16px
+        );
 
     font-size: 0.78em;
-    line-height: 1;
 }
 
-
-/* Subscript */
 
 #oxygen-display sub {
     margin-left: 2px;
 
     font-size: 0.55em;
-    line-height: 1;
 
-    vertical-align: baseline;
+    line-height: 1;
 }
 
 
-/* ------------------------------------------------------------
-   VENT / FAN ICON
-   ------------------------------------------------------------ */
+/* ============================================================
+   VENT ICON
+   ============================================================ */
 
 .vent-icon {
-    width: clamp(26px, 3vw, 48px);
-    height: clamp(26px, 3vw, 48px);
+    width:
+        clamp(
+            26px,
+            3vw,
+            48px
+        );
+
+    height:
+        clamp(
+            26px,
+            3vw,
+            48px
+        );
 
     flex: 0 0 auto;
 
     object-fit: contain;
 
-    transform-origin: center center;
+    transform-origin: center;
 
-    will-change: transform;
+    will-change:
+        transform;
 
     user-select: none;
+
     -webkit-user-drag: none;
 }
 
 
-/* Normal: vent open */
-
-.vent-icon:not(.stopped):not(.slowing):not(.speeding-up) {
-    animation: vent-spin-fast 0.333s linear infinite;
+.vent-icon:not(
+    .stopped
+):not(
+    .slowing
+):not(
+    .speeding-up
+) {
+    animation:
+        fnae-vent-fast
+        0.333s
+        linear
+        infinite;
 }
 
 
-/* ------------------------------------------------------------
-   FAST VENT
-   ------------------------------------------------------------ */
-
-@keyframes vent-spin-fast {
+@keyframes fnae-vent-fast {
     from {
-        transform: rotate(0deg);
+        transform:
+            rotate(0deg);
     }
 
     to {
-        transform: rotate(360deg);
+        transform:
+            rotate(360deg);
     }
 }
 
 
-/* ------------------------------------------------------------
-   SLOWING VENT
-   ------------------------------------------------------------ */
-
-.vent-icon.slowing {
-    animation: vent-spin-slow 3s linear infinite;
-}
-
-
-/* ------------------------------------------------------------
-   SPEEDING-UP VENT
-   ------------------------------------------------------------ */
-
+.vent-icon.slowing,
 .vent-icon.speeding-up {
-    animation: vent-spin-slow 3s linear infinite;
+    animation:
+        fnae-vent-slow
+        3s
+        linear
+        infinite;
 }
 
 
-/* ------------------------------------------------------------
-   STOPPED VENT
-   ------------------------------------------------------------ */
+@keyframes fnae-vent-slow {
+    from {
+        transform:
+            rotate(0deg);
+    }
+
+    to {
+        transform:
+            rotate(360deg);
+    }
+}
+
 
 .vent-icon.stopped {
     animation: none;
 }
 
 
-/* Slow rotation */
-
-@keyframes vent-spin-slow {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-
-/* ------------------------------------------------------------
-   LOW OXYGEN WARNING
-   ------------------------------------------------------------ */
+/* Oxygen warning */
 
 #power-value.flicker {
-    animation: oxygen-warning 0.12s steps(2, end) infinite;
-    color: #fff;
+    animation:
+        fnae-oxygen-warning
+        0.12s
+        steps(2, end)
+        infinite;
 }
 
 
-/* Faster, sharper warning */
-
-@keyframes oxygen-warning {
+@keyframes fnae-oxygen-warning {
     0%,
     100% {
         opacity: 1;
     }
 
     50% {
-        opacity: 0.3;
+        opacity: 0.28;
     }
-}
-
-
-/* ============================================================
-   IN-GAME BUTTONS
-   ============================================================ */
-
-.game-button {
-    position: absolute;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    width: clamp(90px, 8vw, 150px);
-    height: clamp(48px, 8vh, 86px);
-
-    padding: 0;
-
-    background: rgba(0, 0, 0, 0.52);
-
-    border: 2px solid rgba(255, 255, 255, 0.22);
-
-    border-radius: 2px;
-
-    color: #fff;
-
-    cursor: pointer;
-    pointer-events: auto;
-
-    box-sizing: border-box;
-
-    transition:
-        background-color 0.18s ease,
-        border-color 0.18s ease,
-        box-shadow 0.18s ease,
-        transform 0.18s ease;
-
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-
-    will-change: transform;
-}
-
-
-/* Hover */
-
-.game-button:hover {
-    background: rgba(0, 0, 0, 0.78);
-
-    border-color:
-        rgba(255, 255, 255, 0.65);
-
-    box-shadow:
-        0 0 18px rgba(255, 255, 255, 0.12);
-}
-
-
-/* Pressed */
-
-.game-button:active {
-    transform: scale(0.96);
-}
-
-
-/* Button hint */
-
-.game-button .button-hint {
-    margin: 0;
-
-    opacity: 0;
-
-    color: #fff;
-
-    font-size: clamp(12px, 1.1vw, 19px);
-    line-height: 1.1;
-
-    font-weight: 700;
-
-    letter-spacing: 0.08em;
-
-    text-align: center;
-
-    text-shadow:
-        2px 2px 0 #000;
-
-    pointer-events: none;
-
-    transition:
-        opacity 0.18s ease;
-}
-
-
-/* Hint appears on hover */
-
-.game-button:hover .button-hint {
-    opacity: 1;
 }
 
 
@@ -370,9 +501,501 @@
    CONTROL PANEL BUTTON
    ============================================================ */
 
-#control-panel-btn {
-    left: clamp(12px, 2vw, 30px);
-    bottom: clamp(12px, 2vh, 30px);
+#vents-btn,
+.control-panel-button {
+    box-sizing: border-box;
+
+    position: absolute !important;
+
+    left: 0 !important;
+    bottom: 0 !important;
+
+    width:
+        clamp(
+            180px,
+            24vw,
+            420px
+        ) !important;
+
+    height:
+        clamp(
+            54px,
+            9vh,
+            100px
+        ) !important;
+
+    padding:
+        0
+        clamp(
+            14px,
+            1.5vw,
+            28px
+        ) !important;
+
+    display: flex !important;
+
+    align-items: center !important;
+    justify-content: space-between !important;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(10, 10, 10, 0.88),
+            rgba(0, 0, 0, 0.76)
+        ) !important;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.32) !important;
+
+    border-left: none !important;
+    border-bottom: none !important;
+
+    color: #fff;
+
+    cursor: pointer;
+
+    opacity: 0;
+
+    pointer-events: none;
+
+    transition:
+        opacity 0.2s ease,
+        background-color 0.18s ease,
+        border-color 0.18s ease,
+        transform 0.18s ease;
+
+    box-shadow:
+        0 -8px 22px
+        rgba(0, 0, 0, 0.28);
+
+    backdrop-filter:
+        blur(4px);
+
+    -webkit-backdrop-filter:
+        blur(4px);
+
+    z-index: 20;
+
+    touch-action: manipulation;
+}
+
+
+/* Hover */
+
+#vents-btn:hover,
+.control-panel-button:hover {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(28, 28, 28, 0.94),
+            rgba(4, 4, 4, 0.9)
+        ) !important;
+
+    border-color:
+        rgba(255, 255, 255, 0.58) !important;
+}
+
+
+/* Arrow groups */
+
+#vents-btn .control-arrows {
+    display: flex !important;
+
+    align-items: center;
+
+    gap:
+        clamp(
+            5px,
+            0.7vw,
+            10px
+        );
+
+    flex-shrink: 0;
+}
+
+
+/* Arrow itself */
+
+#vents-btn .control-arrows div {
+    color: #fff !important;
+
+    font-size:
+        clamp(
+            15px,
+            1.7vw,
+            28px
+        ) !important;
+
+    line-height: 1 !important;
+
+    opacity: 0.8;
+
+    transition:
+        opacity 0.15s ease;
+}
+
+
+#vents-btn:hover .control-arrows div {
+    opacity: 1;
+}
+
+
+/* Control panel title */
+
+#vents-btn > div:not(.control-arrows) {
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    min-width: 0;
+
+    color: #fff !important;
+
+    font-family:
+        "Courier New",
+        monospace !important;
+
+    font-size:
+        clamp(
+            13px,
+            1.45vw,
+            23px
+        ) !important;
+
+    font-weight: 700 !important;
+
+    letter-spacing:
+        0.12em !important;
+
+    text-align: center;
+
+    white-space: nowrap;
+}
+
+
+/* ============================================================
+   CONTROL PANEL POPUP
+   ============================================================ */
+
+#control-panel-popup {
+    position: absolute !important;
+
+    top:
+        clamp(
+            7vh,
+            10vh,
+            100px
+        ) !important;
+
+    left: 50% !important;
+
+    transform:
+        translateX(-50%);
+
+    width:
+        min(
+            720px,
+            78vw
+        ) !important;
+
+    min-height:
+        unset !important;
+
+    padding:
+        clamp(
+            24px,
+            4vh,
+            42px
+        )
+        clamp(
+            26px,
+            4vw,
+            52px
+        ) !important;
+
+    box-sizing: border-box;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(4, 4, 4, 0.98),
+            rgba(0, 0, 0, 0.97)
+        ) !important;
+
+    border:
+        2px solid
+        rgba(0, 255, 90, 0.7) !important;
+
+    color: #00ff66 !important;
+
+    font-family:
+        "Courier New",
+        monospace !important;
+
+    box-shadow:
+        0 0 0 1px
+            rgba(0, 255, 90, 0.08),
+        0 16px 45px
+            rgba(0, 0, 0, 0.65),
+        0 0 35px
+            rgba(0, 255, 90, 0.08);
+
+    z-index: 60 !important;
+
+    overflow: hidden;
+
+    isolation: isolate;
+}
+
+
+/*
+    Terminal scanline effect.
+*/
+#control-panel-popup::before {
+    content: "";
+
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.018) 0,
+            rgba(255, 255, 255, 0.018) 1px,
+            transparent 1px,
+            transparent 4px
+        );
+
+    opacity: 0.35;
+
+    z-index: -1;
+}
+
+
+/* Popup title */
+
+#control-panel-popup > div:first-child {
+    margin: 0 0
+        clamp(
+            22px,
+            4vh,
+            38px
+        ) !important;
+
+    color:
+        #00ff66 !important;
+
+    font-family:
+        "Courier New",
+        monospace !important;
+
+    font-size:
+        clamp(
+            20px,
+            2.4vw,
+            34px
+        ) !important;
+
+    line-height: 1;
+
+    font-weight: 700 !important;
+
+    letter-spacing:
+        0.12em;
+
+    text-shadow:
+        0 0 10px
+        rgba(0, 255, 100, 0.35);
+}
+
+
+/* Options */
+
+#control-options {
+    display: flex;
+
+    flex-direction: column;
+
+    gap:
+        clamp(
+            8px,
+            1vh,
+            14px
+        );
+}
+
+
+/* Option */
+
+#option-vents,
+#option-cameras {
+    position: relative;
+
+    display: flex !important;
+
+    align-items: center !important;
+
+    width: 100%;
+
+    min-height:
+        clamp(
+            52px,
+            7vh,
+            74px
+        );
+
+    padding:
+        0
+        14px;
+
+    margin: 0 !important;
+
+    box-sizing: border-box;
+
+    background:
+        rgba(0, 255, 90, 0.025);
+
+    border:
+        1px solid
+        rgba(0, 255, 90, 0.18);
+
+    color:
+        #00ff66;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease;
+
+    touch-action: manipulation;
+}
+
+
+/* Hover option */
+
+#option-vents:hover,
+#option-cameras:hover {
+    background:
+        rgba(0, 255, 90, 0.08);
+
+    border-color:
+        rgba(0, 255, 90, 0.6);
+
+    transform:
+        translateX(4px);
+}
+
+
+/* Labels */
+
+#option-vents .option-label,
+#option-cameras .option-label {
+    color:
+        #00ff66 !important;
+
+    font-family:
+        "Courier New",
+        monospace !important;
+
+    font-size:
+        clamp(
+            14px,
+            1.45vw,
+            22px
+        ) !important;
+
+    line-height: 1.1;
+
+    font-weight: 700;
+
+    letter-spacing:
+        0.05em;
+
+    white-space: nowrap;
+}
+
+
+/* Selected arrow */
+
+#option-vents .option-arrow,
+#option-cameras .option-arrow {
+    display: inline-flex !important;
+
+    align-items: center;
+    justify-content: center;
+
+    width: 22px !important;
+
+    min-width: 22px;
+
+    margin-right:
+        14px !important;
+
+    color:
+        #00ff66 !important;
+
+    font-size:
+        18px !important;
+
+    font-weight: 700;
+
+    line-height: 1;
+}
+
+
+/* Status */
+
+#camera-status {
+    margin-left: auto !important;
+
+    color: #ff3030;
+
+    font-family:
+        "Courier New",
+        monospace;
+
+    font-size:
+        clamp(
+            13px,
+            1.2vw,
+            19px
+        );
+
+    font-weight: 700;
+
+    letter-spacing:
+        0.08em;
+
+    white-space: nowrap;
+}
+
+
+#camera-dots,
+#vents-dots {
+    margin-left:
+        10px !important;
+
+    color:
+        #00ff66 !important;
+
+    font-family:
+        "Courier New",
+        monospace !important;
+
+    font-size:
+        0.95em !important;
+
+    letter-spacing:
+        0.03em;
+
+    min-width: 30px;
+
+    white-space: nowrap;
 }
 
 
@@ -380,18 +1003,127 @@
    CAMERA BUTTON
    ============================================================ */
 
-#camera-btn {
-    position: absolute;
+#camera-btn,
+.camera-button {
+    position: absolute !important;
 
-    right: 0;
-    top: 50%;
+    right: 0 !important;
+    top: 50% !important;
 
-    transform: translateY(-50%);
+    transform:
+        translateY(-50%) !important;
 
-    width: clamp(52px, 5vw, 82px);
-    height: clamp(130px, 20vh, 220px);
+    width:
+        clamp(
+            54px,
+            5vw,
+            76px
+        ) !important;
+
+    height:
+        clamp(
+            150px,
+            28vh,
+            280px
+        ) !important;
+
+    min-width: unset !important;
+    min-height: unset !important;
+
+    padding:
+        clamp(
+            12px,
+            2vh,
+            20px
+        )
+        0 !important;
 
     box-sizing: border-box;
+
+    display: flex !important;
+
+    flex-direction: column !important;
+
+    align-items: center !important;
+    justify-content: space-between !important;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(10, 10, 10, 0.95),
+            rgba(0, 0, 0, 0.86)
+        ) !important;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.38) !important;
+
+    border-right: none !important;
+
+    opacity: 0;
+
+    pointer-events: none;
+
+    cursor: pointer;
+
+    box-shadow:
+        -8px 0 24px
+        rgba(0, 0, 0, 0.32);
+
+    transition:
+        opacity 0.2s ease,
+        background-color 0.18s ease,
+        border-color 0.18s ease;
+
+    z-index: 20 !important;
+
+    touch-action: manipulation;
+}
+
+
+#camera-btn:hover,
+.camera-button:hover {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(28, 28, 28, 0.97),
+            rgba(4, 4, 4, 0.92)
+        ) !important;
+
+    border-color:
+        rgba(255, 255, 255, 0.65) !important;
+}
+
+
+/* Camera arrows */
+
+#camera-btn .camera-arrow,
+.camera-button .camera-arrow {
+    color:
+        #fff !important;
+
+    font-size:
+        clamp(
+            15px,
+            1.65vw,
+            26px
+        ) !important;
+
+    line-height: 1;
+
+    opacity: 0.85;
+
+    transition:
+        transform 0.25s ease,
+        opacity 0.18s ease;
+}
+
+
+/* Camera text */
+
+#camera-btn > div:not(.camera-arrow),
+.camera-button > div:not(.camera-arrow) {
+    color: #fff !important;
 }
 
 
@@ -402,57 +1134,96 @@
 #camera-panel {
     position: absolute;
 
-    top: clamp(18px, 5vh, 60px);
-    right: clamp(62px, 7vw, 110px);
+    top:
+        clamp(
+            18px,
+            5vh,
+            60px
+        );
 
-    width: min(70vw, 1100px);
-    aspect-ratio: 4 / 3;
+    right:
+        clamp(
+            58px,
+            7vw,
+            105px
+        );
+
+    width:
+        min(
+            72vw,
+            1120px
+        );
+
+    aspect-ratio:
+        4 / 3;
 
     height: auto;
-    max-height: 80vh;
+
+    max-height:
+        82vh;
 
     box-sizing: border-box;
 
-    background-color: #000;
+    background-color:
+        #030303;
 
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
+    background-size:
+        cover;
 
-    border: 2px solid #444;
+    background-position:
+        center;
+
+    background-repeat:
+        no-repeat;
+
+    border:
+        2px solid
+        rgba(255, 255, 255, 0.34);
 
     box-shadow:
-        -6px 0 24px rgba(0, 0, 0, 0.75),
-        0 0 24px rgba(0, 0, 0, 0.45);
+        0 20px 50px
+            rgba(0, 0, 0, 0.7),
+        0 0 0 1px
+            rgba(255, 255, 255, 0.04);
 
-    z-index: 20;
+    z-index: 40;
 
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-end;
 
-    padding: 0;
+    flex-direction: column;
+
+    align-items: flex-start;
+
+    justify-content: flex-end;
 
     overflow: hidden;
 
     opacity: 0;
 
     transform:
-        translateX(calc(100% + 7vw))
-        scale(0.92);
+        translateX(110%)
+        scale(0.96);
 
-    transform-origin: right center;
+    transform-origin:
+        right center;
 
     transition:
-        transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1),
-        opacity 0.3s ease;
+        transform 0.4s
+            cubic-bezier(
+                0.22,
+                0.61,
+                0.36,
+                1
+            ),
+        opacity 0.25s ease;
 
-    will-change: transform, opacity;
+    will-change:
+        transform,
+        opacity;
+
+    isolation: isolate;
 }
 
-
-/* Camera opened */
 
 #camera-panel.show {
     transform:
@@ -463,21 +1234,40 @@
 }
 
 
-/* Camera closing */
-
 #camera-panel.closing {
     transform:
-        translateX(calc(100% + 7vw))
-        scale(0.92);
+        translateX(110%)
+        scale(0.96);
 
     opacity: 0;
 }
 
 
-/* During static transition */
-
 #camera-panel.transitioning {
-    background-image: none !important;
+    background-image:
+        none !important;
+}
+
+
+/* Camera border overlay */
+
+#camera-panel::before {
+    content: "";
+
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    z-index: 8;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.08);
+
+    box-shadow:
+        inset 0 0 50px
+        rgba(0, 0, 0, 0.28);
 }
 
 
@@ -488,35 +1278,52 @@
 #current-cam-label {
     position: absolute;
 
-    top: clamp(10px, 1.5vh, 18px);
-    left: clamp(10px, 1.3vw, 20px);
+    top:
+        clamp(
+            10px,
+            1.5vh,
+            18px
+        );
+
+    left:
+        clamp(
+            10px,
+            1.4vw,
+            20px
+        );
 
     margin: 0;
-    padding: 0;
 
     color: #fff;
 
-    font-family: Arial, sans-serif;
+    font-family:
+        Arial,
+        sans-serif;
 
-    font-size: clamp(16px, 1.5vw, 26px);
-    line-height: 1;
+    font-size:
+        clamp(
+            15px,
+            1.5vw,
+            25px
+        );
 
     font-weight: 700;
 
-    letter-spacing: 0.04em;
+    letter-spacing:
+        0.05em;
 
     text-shadow:
         2px 2px 4px #000,
-        0 0 8px rgba(0, 0, 0, 0.7);
+        0 0 9px rgba(0, 0, 0, 0.8);
 
-    z-index: 4;
+    z-index: 10;
 
     pointer-events: none;
 }
 
 
 /* ============================================================
-   CHARACTER OVERLAY
+   CAMERA CHARACTER OVERLAY
    ============================================================ */
 
 #character-overlay {
@@ -528,9 +1335,9 @@
 
     pointer-events: none;
 
-    z-index: 3;
-
     overflow: hidden;
+
+    z-index: 4;
 }
 
 
@@ -576,7 +1383,7 @@
 
     pointer-events: none;
 
-    z-index: 5;
+    z-index: 6;
 
     opacity: 0;
 
@@ -584,14 +1391,13 @@
 
     transition:
         opacity 0.15s ease;
-
-    will-change: opacity;
 }
 
 
 #camera-static-video.active {
     display: block;
-    opacity: 0.8;
+
+    opacity: 0.82;
 }
 
 
@@ -602,27 +1408,48 @@
 #camera-error-label {
     position: absolute;
 
-    top: clamp(10px, 1.5vh, 18px);
-    right: clamp(12px, 1.8vw, 26px);
+    top:
+        clamp(
+            10px,
+            1.5vh,
+            18px
+        );
+
+    right:
+        clamp(
+            12px,
+            1.8vw,
+            26px
+        );
 
     margin: 0;
 
-    color: #f00;
+    color:
+        #ff2222;
 
-    font-family: Arial, sans-serif;
+    font-family:
+        Arial,
+        sans-serif;
 
-    font-size: clamp(28px, 3vw, 52px);
-    line-height: 1;
+    font-size:
+        clamp(
+            28px,
+            3vw,
+            50px
+        );
 
-    font-weight: 900;
+    font-weight:
+        900;
 
-    letter-spacing: 0.04em;
+    letter-spacing:
+        0.05em;
 
     text-shadow:
         2px 2px 0 #000,
-        0 0 10px rgba(255, 0, 0, 0.45);
+        0 0 12px
+            rgba(255, 0, 0, 0.45);
 
-    z-index: 6;
+    z-index: 10;
 
     display: none;
 
@@ -642,29 +1469,42 @@
 #camera-grid {
     position: absolute;
 
-    left: clamp(10px, 1.3vw, 20px);
-    bottom: clamp(10px, 1.5vh, 20px);
+    left:
+        clamp(
+            10px,
+            1.3vw,
+            20px
+        );
 
-    width: min(28vw, 380px);
+    bottom:
+        clamp(
+            10px,
+            1.5vh,
+            20px
+        );
 
-    max-width: calc(100% - 20px);
+    width:
+        min(
+            28vw,
+            380px
+        );
 
-    z-index: 6;
+    max-width:
+        calc(100% - 20px);
 
-    pointer-events: auto;
+    z-index: 10;
 }
 
 
 .camera-hotspot {
     position: absolute;
 
-    border-radius: 3px;
-
     cursor: pointer;
+
+    border-radius: 3px;
 
     transition:
         transform 0.16s ease,
-        opacity 0.16s ease,
         box-shadow 0.16s ease;
 
     touch-action: manipulation;
@@ -672,32 +1512,44 @@
 
 
 .camera-hotspot:hover {
-    transform: scale(1.04);
+    transform:
+        scale(1.04);
 
     box-shadow:
-        0 0 12px rgba(255, 255, 255, 0.15);
+        0 0 14px
+        rgba(255, 255, 255, 0.16);
 }
 
 
 /* Selected camera */
 
 .camera-selected {
-    animation: camera-selection-pulse 1s ease-in-out infinite;
+    animation:
+        camera-selected-pulse
+        1s
+        ease-in-out
+        infinite;
 }
 
 
-@keyframes camera-selection-pulse {
+@keyframes camera-selected-pulse {
     0%,
     100% {
-        background: rgba(0, 255, 0, 0.6);
+        background:
+            rgba(0, 255, 0, 0.62);
+
         box-shadow:
-            0 0 4px rgba(0, 255, 0, 0.35);
+            0 0 4px
+            rgba(0, 255, 0, 0.25);
     }
 
     50% {
-        background: rgba(0, 255, 0, 0.22);
+        background:
+            rgba(0, 255, 0, 0.2);
+
         box-shadow:
-            0 0 14px rgba(0, 255, 0, 0.55);
+            0 0 15px
+            rgba(0, 255, 0, 0.5);
     }
 }
 
@@ -710,34 +1562,61 @@
 #play-sound-btn {
     position: absolute;
 
-    right: clamp(14px, 1.8vw, 28px);
+    right:
+        clamp(
+            14px,
+            1.8vw,
+            28px
+        );
 
-    width: min(280px, 24vw);
+    width:
+        min(
+            280px,
+            25vw
+        );
 
     box-sizing: border-box;
 
-    padding: clamp(10px, 1.5vh, 18px) 20px;
+    padding:
+        clamp(
+            10px,
+            1.5vh,
+            18px
+        )
+        18px;
 
-    background: rgba(0, 0, 0, 0.72);
+    background:
+        rgba(0, 0, 0, 0.76);
 
-    border: 2px solid rgba(255, 255, 255, 0.78);
-
-    border-radius: 2px;
+    border:
+        2px solid
+        rgba(255, 255, 255, 0.72);
 
     color: #fff;
 
     cursor: pointer;
-    pointer-events: auto;
 
-    font-family: Arial, sans-serif;
+    font-family:
+        Arial,
+        sans-serif;
 
-    font-size: clamp(13px, 1.25vw, 21px);
-
-    line-height: 1.1;
+    font-size:
+        clamp(
+            12px,
+            1.15vw,
+            20px
+        );
 
     font-weight: 700;
 
-    letter-spacing: clamp(2px, 0.25vw, 4px);
+    letter-spacing:
+        clamp(
+            1px,
+            0.2vw,
+            4px
+        );
+
+    line-height: 1.1;
 
     text-align: center;
 
@@ -749,230 +1628,520 @@
 
     touch-action: manipulation;
 
-    z-index: 7;
+    z-index: 11;
 }
 
-
-/* Electrocute */
 
 #shock-hawking-btn {
-    bottom: clamp(76px, 10vh, 115px);
+    bottom:
+        clamp(
+            76px,
+            10vh,
+            112px
+        );
 }
 
-
-/* Play sound */
 
 #play-sound-btn {
-    bottom: clamp(14px, 2.5vh, 30px);
+    bottom:
+        clamp(
+            14px,
+            2.5vh,
+            30px
+        );
 }
 
-
-/* Hover */
 
 #shock-hawking-btn:hover,
 #play-sound-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background:
+        rgba(255, 255, 255, 0.12);
 
-    border-color: #fff;
+    border-color:
+        rgba(255, 255, 255, 0.95);
 
     box-shadow:
-        0 0 18px rgba(255, 255, 255, 0.15);
+        0 0 18px
+        rgba(255, 255, 255, 0.12);
 
-    transform: translateY(-2px);
+    transform:
+        translateY(-2px);
 }
 
-
-/* Press */
 
 #shock-hawking-btn:active,
 #play-sound-btn:active {
-    transform: scale(0.96);
+    transform:
+        scale(0.96);
 }
 
 
 /* ============================================================
-   CAMERA CLOSE BUTTON
+   NIGHT COMPLETION STARS
    ============================================================ */
 
-#close-camera {
-    display: none;
-
+#star-icon,
+#star-icon-2 {
     position: absolute;
 
-    top: 12px;
-    right: 12px;
+    left: 50%;
 
-    width: 42px;
-    height: 42px;
+    width:
+        clamp(
+            42px,
+            5vw,
+            78px
+        );
 
-    background: rgba(0, 0, 0, 0.7);
+    max-width: 78px;
 
-    border: 2px solid rgba(255, 255, 255, 0.65);
+    height: auto;
 
-    color: #fff;
+    z-index: 103;
+
+    transform:
+        translateX(-50%);
+
+    object-fit: contain;
+
+    pointer-events: none;
+
+    /*
+        Keep the original star artwork visible by default.
+    */
+    transition:
+        filter 0.35s ease,
+        transform 0.35s ease;
+}
+
+
+#star-icon {
+    top: 15vh;
+}
+
+
+#star-icon-2 {
+    top: 22vh;
+}
+
+
+/*
+    Filled/completed state.
+
+    Add .night5-complete to the star elements (JS below).
+*/
+#star-icon.night5-complete,
+#star-icon-2.night5-complete {
+    filter:
+        brightness(0)
+        saturate(100%)
+        invert(75%)
+        sepia(100%)
+        saturate(1400%)
+        hue-rotate(2deg)
+        brightness(104%)
+        contrast(108%)
+        drop-shadow(
+            0 0 7px
+            rgba(255, 215, 0, 0.72)
+        );
+
+    transform:
+        translateX(-50%)
+        scale(1.08);
+}
+
+
+/* Completed stars glow together */
+
+#star-icon.night5-complete {
+    animation:
+        completed-star-glow
+        2s
+        ease-in-out
+        infinite;
+}
+
+
+#star-icon-2.night5-complete {
+    animation:
+        completed-star-glow
+        2s
+        ease-in-out
+        infinite
+        0.5s;
+}
+
+
+@keyframes completed-star-glow {
+    0%,
+    100% {
+        filter:
+            brightness(0)
+            saturate(100%)
+            invert(75%)
+            sepia(100%)
+            saturate(1400%)
+            hue-rotate(2deg)
+            brightness(104%)
+            contrast(108%)
+            drop-shadow(
+                0 0 6px
+                rgba(255, 215, 0, 0.65)
+            );
+
+        transform:
+            translateX(-50%)
+            scale(1);
+    }
+
+    50% {
+        filter:
+            brightness(0)
+            saturate(100%)
+            invert(75%)
+            sepia(100%)
+            saturate(1400%)
+            hue-rotate(2deg)
+            brightness(110%)
+            contrast(110%)
+            drop-shadow(
+                0 0 18px
+                rgba(255, 215, 0, 0.95)
+            );
+
+        transform:
+            translateX(-50%)
+            scale(1.08);
+    }
+}
+
+
+/* ============================================================
+   CUTSCENE — NO GAME HUD THROUGH IT
+   ============================================================ */
+
+#cutscene {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    background: #000;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    overflow: hidden;
+
+    z-index: 200;
 
     cursor: pointer;
 
-    z-index: 30;
+    pointer-events: auto;
+
+    opacity: 0;
+
+    transition:
+        opacity 3s ease-in-out;
+
+    isolation: isolate;
+}
+
+
+#cutscene.fade-in {
+    opacity: 1;
+}
+
+
+#cutscene.fade-out {
+    opacity: 0;
+}
+
+
+#cutscene img {
+    width: 100%;
+    height: 100%;
+
+    max-width: none;
+    max-height: none;
+
+    object-fit: contain;
+
+    pointer-events: none;
+}
+
+
+/*
+    Cutscene hint stays inside the cutscene itself.
+*/
+.cutscene-hint {
+    position: absolute;
+
+    left: 50%;
+
+    bottom:
+        clamp(
+            18px,
+            5vh,
+            55px
+        );
+
+    transform:
+        translateX(-50%);
+
+    color: #fff;
+
+    font-size:
+        clamp(
+            12px,
+            1.5vw,
+            21px
+        );
+
+    font-family:
+        "Courier New",
+        monospace;
+
+    letter-spacing:
+        0.08em;
+
+    text-shadow:
+        2px 2px 0 #000;
+
+    pointer-events: none;
+
+    animation:
+        fnae-cutscene-pulse
+        1.5s
+        ease-in-out
+        infinite;
+}
+
+
+@keyframes fnae-cutscene-pulse {
+    0%,
+    100% {
+        opacity: 0.45;
+    }
+
+    50% {
+        opacity: 1;
+    }
 }
 
 
 /* ============================================================
-   TOUCH DEVICES
+   NIGHT INTRO
    ============================================================ */
 
-@media (hover: none) and (pointer: coarse) {
+#night-intro {
+    position: absolute;
+    inset: 0;
 
-    .game-button,
-    .camera-hotspot,
-    #shock-hawking-btn,
-    #play-sound-btn,
-    #camera-btn {
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-    }
+    width: 100%;
+    height: 100%;
 
-    .game-button:active,
-    #shock-hawking-btn:active,
-    #play-sound-btn:active {
-        transform: scale(0.96);
-    }
+    background: #000;
 
-    .camera-hotspot:active {
-        transform: scale(0.98);
-    }
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    z-index: 200;
+
+    opacity: 0;
+
+    transition:
+        opacity 1.5s ease-in-out;
+}
+
+
+#night-intro.fade-in {
+    opacity: 1;
+}
+
+
+#night-intro.fade-out {
+    opacity: 0;
+}
+
+
+#night-intro-text {
+    font-size:
+        clamp(
+            52px,
+            8vw,
+            128px
+        );
+
+    color: #fff;
+
+    font-family:
+        "Courier New",
+        monospace;
+
+    font-weight: 700;
+
+    letter-spacing:
+        0.08em;
+
+    text-shadow:
+        0 0 20px
+        rgba(255, 255, 255, 0.5);
+
+    text-align: center;
 }
 
 
 /* ============================================================
-   MOBILE PORTRAIT
+   PORTRAIT
    ============================================================ */
 
 @media (max-width: 768px) and (orientation: portrait) {
 
-    #top-left-ui {
-        top: 1.5vh;
-        left: 3vw;
-    }
-
     #time-display {
-        font-size: clamp(24px, 6vw, 38px);
+        font-size:
+            clamp(
+                24px,
+                6vw,
+                38px
+            );
     }
 
     #night-display {
-        font-size: clamp(13px, 3.2vw, 20px);
-    }
-
-    #bottom-right-ui {
-        right: 3vw;
-        bottom: 1.5vh;
+        font-size:
+            clamp(
+                13px,
+                3vw,
+                20px
+            );
     }
 
     #oxygen-display {
-        font-size: clamp(20px, 5vw, 32px);
+        font-size:
+            clamp(
+                20px,
+                5vw,
+                32px
+            );
     }
 
     .vent-icon {
-        width: clamp(28px, 6vw, 42px);
-        height: clamp(28px, 6vw, 42px);
+        width:
+            clamp(
+                28px,
+                6vw,
+                42px
+            );
+
+        height:
+            clamp(
+                28px,
+                6vw,
+                42px
+            );
+    }
+
+    #control-panel-popup {
+        top: 8vh !important;
+
+        width:
+            90vw !important;
+
+        padding:
+            24px 18px !important;
+    }
+
+    #control-panel-popup > div:first-child {
+        font-size:
+            clamp(
+                18px,
+                5vw,
+                28px
+            ) !important;
+    }
+
+    #option-vents .option-label,
+    #option-cameras .option-label {
+        font-size:
+            clamp(
+                14px,
+                4vw,
+                20px
+            ) !important;
     }
 
     #camera-panel {
         top: 8vh;
+
         right: 4vw;
 
         width: 92vw;
+
         max-height: 72vh;
     }
 
     #camera-grid {
-        width: min(42vw, 300px);
+        width:
+            min(
+                42vw,
+                300px
+            );
     }
 
     #shock-hawking-btn,
     #play-sound-btn {
-        width: min(190px, 46vw);
+        width:
+            min(
+                190px,
+                46vw
+            );
 
-        font-size: clamp(12px, 3.2vw, 16px);
-
-        letter-spacing: 2px;
+        font-size:
+            clamp(
+                11px,
+                3vw,
+                15px
+            );
     }
 
     #camera-btn {
-        width: 60px;
-        height: 150px;
-        min-width: 60px;
-        min-height: 120px;
+        width: 58px !important;
+
+        height: 145px !important;
     }
 
-    #current-cam-label {
-        font-size: 17px;
-    }
-
-    #camera-error-label {
-        font-size: 32px;
+    #star-icon,
+    #star-icon-2 {
+        width:
+            clamp(
+                44px,
+                12vw,
+                64px
+            );
     }
 }
 
 
 /* ============================================================
-   MOBILE LANDSCAPE
+   LANDSCAPE
    ============================================================ */
 
-@media (max-width: 926px) and (orientation: landscape) {
-
-    #top-left-ui {
-        top: 1.5vh;
-        left: 1.5vw;
-    }
-
-    #time-display {
-        font-size: clamp(20px, 3.5vh, 32px);
-    }
-
-    #night-display {
-        font-size: clamp(11px, 2vh, 17px);
-    }
-
-    #bottom-right-ui {
-        right: 1.5vw;
-        bottom: 1.5vh;
-    }
-
-    #oxygen-display {
-        font-size: clamp(17px, 3vh, 28px);
-    }
-
-    .vent-icon {
-        width: clamp(24px, 4vh, 38px);
-        height: clamp(24px, 4vh, 38px);
-    }
+@media (max-width: 1100px) and (orientation: landscape) {
 
     #camera-btn {
         width: 68px !important;
-        height: 60vh !important;
+
+        height: 58vh !important;
 
         min-width: 68px !important;
+
         min-height: 180px !important;
-
-        top: 20vh !important;
-
-        right: 0;
-
-        transform: none !important;
-
-        background: rgba(0, 0, 0, 0.92) !important;
-
-        border: 2px solid
-            rgba(255, 255, 255, 0.65) !important;
-
-        border-right: none !important;
-
-        z-index: 25 !important;
-    }
-
-    #camera-btn .camera-arrow {
-        font-size: 20px !important;
     }
 
     #camera-panel {
@@ -980,7 +2149,10 @@
 
         right: 68px;
 
-        width: calc(100vw - 68px);
+        width:
+            calc(
+                100vw - 68px
+            );
 
         height: 100vh;
 
@@ -988,68 +2160,51 @@
 
         aspect-ratio: auto;
 
-        border: none;
+        border:
+            none;
 
-        border-right: 2px solid #444;
+        border-right:
+            2px solid #444;
     }
 
     #camera-grid {
-        width: min(25vw, 280px);
-
-        left: 1vw;
-        bottom: 1vh;
+        width:
+            min(
+                25vw,
+                280px
+            );
     }
 
-    #current-cam-label {
-        top: 1vh;
-        left: 1vw;
-
-        font-size: clamp(14px, 2.5vh, 22px);
-    }
-
-    #camera-error-label {
-        top: 1vh;
-        right: 2vw;
-
-        font-size: clamp(26px, 5vh, 42px);
-    }
-
-    #shock-hawking-btn,
-    #play-sound-btn {
-        width: 180px;
-
-        right: 2vw;
-
-        font-size: clamp(12px, 2.5vh, 18px);
-
-        letter-spacing: 2px;
-    }
-
-    #shock-hawking-btn {
-        bottom: 10vh;
-    }
-
-    #play-sound-btn {
-        bottom: 2vh;
+    #control-panel-popup {
+        width:
+            min(
+                75vw,
+                700px
+            ) !important;
     }
 }
 
 
 /* ============================================================
-   REDUCE MOTION
+   REDUCED MOTION
    ============================================================ */
 
 @media (prefers-reduced-motion: reduce) {
 
-    .vent-icon,
-    .camera-selected,
-    #power-value.flicker {
-        animation: none !important;
-    }
-
+    #current-scene,
     #camera-panel,
+    #vents-btn,
+    #camera-btn,
     .game-button,
     .camera-hotspot {
         transition: none !important;
+    }
+
+    .vent-icon,
+    #power-value.flicker,
+    .camera-selected,
+    #star-icon.night5-complete,
+    #star-icon-2.night5-complete {
+        animation: none !important;
     }
 }
