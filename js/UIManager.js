@@ -600,90 +600,141 @@ class UIManager {
     // Toggle control panel
     // ========================================================
 
-    toggleControlPanel() {
-        if (!this.game || !this.game.state) {
-            return;
-        }
+   toggleControlPanel() {
+    if (
+        !this.game ||
+        !this.game.state
+    ) {
+        return;
+    }
 
-        let panel =
-            this.controlPanelPopup &&
-            this.controlPanelPopup.isConnected
-                ? this.controlPanelPopup
-                : document.getElementById(
-                    'control-panel-popup'
-                );
-
-        // ----------------------------------------------------
-        // Create popup if it doesn't exist
-        // ----------------------------------------------------
-
-        if (!panel) {
-            this.createControlPanelPopup();
-
-            panel =
-                this.controlPanelPopup;
-
-            this.game.isRotatingLeft =
-                false;
-
-            this.game.isRotatingRight =
-                false;
-
-            this.game.state.controlPanelOpen =
-                true;
-
-            this.updateControlPanelArrows();
-
-            return;
-        }
-
-        this.controlPanelPopup = panel;
-
-        const wasHidden =
-            panel.classList.contains(
-                'hidden'
+    let panel =
+        this.controlPanelPopup &&
+        this.controlPanelPopup.isConnected
+            ? this.controlPanelPopup
+            : document.getElementById(
+                'control-panel-popup'
             );
 
-        // ----------------------------------------------------
-        // Prevent closing while busy
-        // ----------------------------------------------------
+    // --------------------------------------------------------
+    // Create panel if necessary
+    // --------------------------------------------------------
 
-        if (
-            !wasHidden &&
-            this.game.state.controlPanelBusy
-        ) {
-            return;
-        }
+    if (!panel) {
+        panel =
+            this.createControlPanelPopup();
+    }
 
-        // ----------------------------------------------------
-        // Toggle
-        // ----------------------------------------------------
+    if (!panel) {
+        return;
+    }
 
-        panel.classList.toggle(
+    this.controlPanelPopup =
+        panel;
+
+    // --------------------------------------------------------
+    // Current state
+    // --------------------------------------------------------
+
+    const isOpen =
+        panel.classList.contains(
+            'control-panel-open'
+        );
+
+    // --------------------------------------------------------
+    // Prevent closing while a vent/camera operation
+    // is active.
+    // --------------------------------------------------------
+
+    if (
+        isOpen &&
+        this.game.state.controlPanelBusy
+    ) {
+        return;
+    }
+
+    // --------------------------------------------------------
+    // OPEN
+    // --------------------------------------------------------
+
+    if (!isOpen) {
+        // Stop camera-view rotation.
+        this.game.isRotatingLeft = false;
+        this.game.isRotatingRight = false;
+
+        this.game.state.controlPanelOpen =
+            true;
+
+        // Important:
+        // remove hidden first so CSS transitions can play.
+        panel.classList.remove(
             'hidden'
         );
 
-        if (wasHidden) {
-            // Open panel
-            this.game.isRotatingLeft =
-                false;
+        // Force layout so the browser sees the
+        // closed transform before opening.
+        void panel.offsetWidth;
 
-            this.game.isRotatingRight =
-                false;
-
-            this.game.state.controlPanelOpen =
-                true;
-        } else {
-            // Close panel
-            this.game.state.controlPanelOpen =
-                false;
-        }
+        panel.classList.add(
+            'control-panel-open'
+        );
 
         this.lastControlArrowState =
             null;
 
         this.updateControlPanelArrows();
+
+        return;
     }
+
+    // --------------------------------------------------------
+    // CLOSE
+    // --------------------------------------------------------
+
+    this.game.state.controlPanelOpen =
+        false;
+
+    // Remove the OPEN state.
+    //
+    // Do NOT immediately add .hidden.
+    // CSS needs time to animate the panel back left.
+    panel.classList.remove(
+        'control-panel-open'
+    );
+
+    this.lastControlArrowState =
+        null;
+
+    this.updateControlPanelArrows();
+
+    // Hide only after the animation finishes.
+    if (
+        this.controlPanelArrowTimeout !==
+        null
+    ) {
+        clearTimeout(
+            this.controlPanelArrowTimeout
+        );
+    }
+
+    this.controlPanelArrowTimeout =
+        setTimeout(() => {
+            if (
+                this.controlPanelPopup ===
+                    panel &&
+                !panel.classList.contains(
+                    'control-panel-open'
+                )
+            ) {
+                panel.classList.add(
+                    'hidden'
+                );
+            }
+
+            this.controlPanelArrowTimeout =
+                null;
+        }, 520);
+}
 
     // ========================================================
     // Create control panel popup
@@ -713,20 +764,21 @@ class UIManager {
         popup.id =
             'control-panel-popup';
 
-        Object.assign(popup.style, {
-            position: 'fixed',
-            top: '10vh',
-            left: '10vw',
-            width: '70vw',
-            minHeight: '60vh',
-            background: '#000',
-            border: '4px solid #0f0',
-            padding: '4vh 4vw',
-            zIndex: '100',
-            fontFamily: "'Courier New', monospace",
-            color: '#0f0'
-        });
-
+       Object.assign(
+    popup.style,
+    {
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        width: 'min(720px, 78vw)',
+        minHeight: '0',
+        padding: '32px 42px',
+        zIndex: '60',
+        fontFamily: "'Courier New', monospace",
+        color: '#00ff66',
+        boxSizing: 'border-box'
+    }
+);
         // ----------------------------------------------------
         // Title
         // ----------------------------------------------------
@@ -916,10 +968,14 @@ class UIManager {
             optionsContainer
         );
 
-        document.body.appendChild(
-            popup
-        );
+       const gameScreen =
+    document.getElementById('game-screen');
 
+if (gameScreen) {
+    gameScreen.appendChild(popup);
+} else {
+    document.body.appendChild(popup);
+}
         // Cache everything.
         this.cacheControlPanelElements(
             popup
@@ -958,56 +1014,91 @@ class UIManager {
     // Global click handler
     // ========================================================
 
-    handleDocumentClick(e) {
-        const popup =
-            this.controlPanelPopup &&
-            this.controlPanelPopup.isConnected
-                ? this.controlPanelPopup
-                : document.getElementById(
-                    'control-panel-popup'
-                );
-
-        if (!popup) {
-            return;
-        }
-
-        this.controlPanelPopup = popup;
-
-        const target = e.target;
-
-        const clickedVentsButton =
-            target &&
-            (
-                target.id === 'vents-btn' ||
-                (
-                    target.closest &&
-                    target.closest('#vents-btn')
-                )
+handleDocumentClick(e) {
+    const panel =
+        this.controlPanelPopup &&
+        this.controlPanelPopup.isConnected
+            ? this.controlPanelPopup
+            : document.getElementById(
+                'control-panel-popup'
             );
 
-        if (
-            popup.contains(target) ||
-            clickedVentsButton
-        ) {
-            return;
-        }
-
-        if (
-            this.game.state.controlPanelBusy
-        ) {
-            return;
-        }
-
-        popup.classList.add('hidden');
-
-        this.game.state.controlPanelOpen =
-            false;
-
-        this.lastControlArrowState =
-            null;
-
-        this.updateControlPanelArrows();
+    if (!panel) {
+        return;
     }
+
+    this.controlPanelPopup =
+        panel;
+
+    const target =
+        e.target;
+
+    const clickedControlButton =
+        target &&
+        target.closest &&
+        target.closest(
+            '#vents-btn'
+        );
+
+    // Click inside panel or on the panel launcher.
+    if (
+        panel.contains(target) ||
+        clickedControlButton
+    ) {
+        return;
+    }
+
+    if (
+        !panel.classList.contains(
+            'control-panel-open'
+        )
+    ) {
+        return;
+    }
+
+    if (
+        this.game.state.controlPanelBusy
+    ) {
+        return;
+    }
+
+    this.game.state.controlPanelOpen =
+        false;
+
+    panel.classList.remove(
+        'control-panel-open'
+    );
+
+    this.lastControlArrowState =
+        null;
+
+    this.updateControlPanelArrows();
+
+    if (
+        this.controlPanelArrowTimeout !==
+        null
+    ) {
+        clearTimeout(
+            this.controlPanelArrowTimeout
+        );
+    }
+
+    this.controlPanelArrowTimeout =
+        setTimeout(() => {
+            if (
+                !panel.classList.contains(
+                    'control-panel-open'
+                )
+            ) {
+                panel.classList.add(
+                    'hidden'
+                );
+            }
+
+            this.controlPanelArrowTimeout =
+                null;
+        }, 520);
+}
 
     // ========================================================
     // Select control option
